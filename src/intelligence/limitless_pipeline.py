@@ -118,7 +118,9 @@ class LimitlessDecisionLoop:
 
             self.live_gateway = OnchainAmmGateway(
                 private_key=_cfg.private_key.get_secret_value(), market_client=collector.client,
-                max_usdc_per_order=_cfg.live_max_usdc_per_order)
+                max_usdc_per_order=_cfg.live_max_usdc_per_order,
+                clob_api_key=_cfg.clob_api_key.get_secret_value() if _cfg.clob_api_key else None,
+                clob_api_secret=_cfg.clob_api_secret.get_secret_value() if _cfg.clob_api_secret else None)
             log.info("limitless.live.enabled", mode="onchain", wallet=self.live_gateway.address,
                      max_usdc_per_order=_cfg.live_max_usdc_per_order)
         elif _cfg.live and _cfg.api_key and _cfg.api_secret:
@@ -450,7 +452,8 @@ class LimitlessDecisionLoop:
     async def _judge_one(self, cand: Any, quote: Any, cfg: Any) -> dict[str, Any]:
         # eseguibilita' PRIMA di spendere giudizi: il gateway on-chain compra solo pool AMM —
         # un mercato CLOB giudicato finirebbe comunque in reprice_skip (visto sul campo)
-        if (self.live_gateway is not None and not hasattr(self.live_gateway, "place_fok")
+        if (self.live_gateway is not None
+                and not getattr(self.live_gateway, "clob_enabled", hasattr(self.live_gateway, "place_fok"))
                 and getattr(cand, "trade_type", "amm") != "amm"):
             self._set_cooldown(cand.market_id, 6 * 3600)
             return {"market": cand.market_id, "stage": "NOT_EXECUTABLE"}

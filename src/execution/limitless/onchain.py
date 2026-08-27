@@ -96,7 +96,8 @@ class OnchainAmmGateway:
     """Interfaccia compatibile col gateway delegato: espone solo place_amm."""
 
     def __init__(self, *, private_key: str, market_client: Any, max_usdc_per_order: float = 5.0,
-                 rpc: str = BASE_RPC, slippage_bps: int = 300):
+                 rpc: str = BASE_RPC, slippage_bps: int = 300,
+                 clob_api_key: str | None = None, clob_api_secret: str | None = None):
         from eth_account import Account
         from web3 import Web3
 
@@ -118,6 +119,21 @@ class OnchainAmmGateway:
         self.max_usdc_per_order = max_usdc_per_order
         self.slippage_bps = slippage_bps
         self._fpmm_cache: dict[str, str] = {}
+        # esecuzione CLOB (EIP-712 con lo stesso EOA del maker): attiva solo con le credenziali HMAC
+        self._sdk = None
+        self._oc = None
+        self.clob_enabled = False
+        if clob_api_key and clob_api_secret:
+            try:
+                from limitless_sdk.orders import OrderClient
+                from limitless_sdk.sdk_client import Client as _LmtsClient
+                from limitless_sdk.types.api_tokens import HMACCredentials
+                self._sdk = _LmtsClient(hmac_credentials=HMACCredentials(tokenId=clob_api_key, secret=clob_api_secret))
+                self._oc = OrderClient(self._sdk.http, self._acct, market_fetcher=self._sdk.markets)
+                self.clob_enabled = True
+                log.info("limitless.clob_execution.enabled", wallet=self.address)
+            except Exception as exc:  # noqa: BLE001 - senza CLOB si resta AMM-only
+                log.warning("limitless.clob_gateway_failed", error=str(exc)[:100])
 
     # ------------------------------------------------------------- sync core
     def _send(self, fn: Any) -> str:
@@ -234,7 +250,20 @@ class OnchainAmmGateway:
         from core.enums import MarketStatus
         from core.schemas import Quote
 
-        fpmm_addr = await self._resolve_fpmm(market_slug)
+        try:
+            fpmm_addr = await self._resolve_fpmm(market_slug)
+        except RuntimeError:
+            if self._sdk is None:
+                raise
+            # mercato CLOB: il prezzo eseguibile e' il book (best bid/ask), non un pool
+            ob = await self._sdk.markets.get_orderbook(market_slug)
+            obd = ob.model_dump() if hasattr(ob, "model_dump") else dict(ob)
+            mid = float(obd.get("adjusted_midpoint") or 0.5)
+            bids, asks = obd.get("bids") or [], obd.get("asks") or []
+            bid = float(bids[0]["price"]) if bids else max(0.001, mid - 0.02)
+            offer = float(asks[0]["price"]) if asks else min(0.999, mid + 0.02)
+            return Quote(epic=epic, bid=bid, offer=offer, ts=utcnow(),
+                         market_status=MarketStatus.TRADEABLE, source="limitless-clob")
         bid, offer = await asyncio.to_thread(self._price_sync, fpmm_addr)
         return Quote(epic=epic, bid=bid, offer=offer, ts=utcnow(),
                      market_status=MarketStatus.TRADEABLE, source="limitless-fpmm")
@@ -264,5 +293,57 @@ class OnchainAmmGateway:
             log.warning("limitless.real_registry_failed", error=str(exc)[:100])
         return out
 
+    def _position_ids_sync(self, condition_id: str) -> list[int]:
+        """positionIds derivati dal CTF (i payload CLOB non li espongono): view call gratuite."""
+        from web3 import Web3
+        ctf = self._w3.eth.contract(address=Web3.to_checksum_address(CTF_ADDR), abi=CTF_MIN_ABI)
+        pids = []
+        for idx in (1, 2):
+            col = ctf.functions.getCollectionId(b"\x00" * 32, bytes.fromhex(condition_id[2:]), idx).call()
+            pids.append(ctf.functions.getPositionId(Web3.to_checksum_address(USDC), col).call())
+        return pids
+
+    async def place_fok(self, *, side: str, tokens: dict[str, Any], market_slug: str,
+                        usdc_amount: float) -> dict[str, Any]:
+        """BUY FOK sul CLOB (EIP-712 con l'EOA, come il maker). L'inventario finisce nel
+        registro cumulativo: il redeem sweep lo incassa da solo alla risoluzione."""
+        if not self.clob_enabled:
+            raise RuntimeError("esecuzione CLOB non abilitata: credenziali HMAC assenti")
+        from limitless_sdk.types.orders import OrderType, Side
+        amount = round(min(usdc_amount, self.max_usdc_per_order), 2)
+        if amount < 1.0:
+            raise ValueError(f"importo {amount} sotto il minimo operativo 1 USDC")
+        token_id = (tokens or {}).get(side.lower()) or (tokens or {}).get(side.upper())
+        if not token_id:
+            raise RuntimeError(f"token id assente per side {side}")
+        resp = await self._oc.create_order(token_id=str(token_id), side=Side.BUY,
+                                           order_type=OrderType.FOK, market_slug=market_slug,
+                                           maker_amount=amount)
+        rd = resp.model_dump(by_alias=True) if hasattr(resp, "model_dump") else dict(resp)
+        status = str((rd.get("order") or {}).get("status") or "")
+        log.info("limitless.clob.filled", market=market_slug, side=side, usdc=amount, status=status[:24])
+        try:
+            import json
+            from pathlib import Path
+
+            from collectors.limitless.markets import parse_expiry
+            m = await self._market_client.market(market_slug) or {}
+            cond, expiry = m.get("conditionId"), parse_expiry(m)
+            if cond and expiry:
+                pids = await asyncio.to_thread(self._position_ids_sync, cond)
+                reg_path = Path("data/maker_touched.json")
+                reg = json.loads(reg_path.read_text()) if reg_path.exists() else {}
+                reg[market_slug] = {"condition_id": cond, "position_ids": [str(p) for p in pids],
+                                    "expiry": expiry.isoformat()}
+                reg_path.write_text(json.dumps(reg, indent=1))
+        except Exception as exc:  # noqa: BLE001 - tracking best-effort: i token restano del wallet
+            log.warning("limitless.clob_registry_failed", market=market_slug, error=str(exc)[:100])
+        return rd
+
     async def aclose(self) -> None:
+        if self._sdk is not None:
+            try:
+                await self._sdk.close()
+            except Exception:  # noqa: BLE001
+                pass
         return None
