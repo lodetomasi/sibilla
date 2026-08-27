@@ -456,7 +456,7 @@ class LimitlessDecisionLoop:
             # prior quantitativo presente (rating Elo): il mercato e' giudicabile per
             # costruzione — dritto al comitato, senza pagare (ne' rischiare) il triage LLM
             log.info("limitless.triage_bypass", market=cand.market_id, reason="quantitative_prior")
-            return await self._judge_core(cand, brief, base, cfg)
+            return await self._judge_core(cand, brief, base, cfg, fast=True)
 
         triage = await self.llm.complete(
             "high_volume_filter",
@@ -473,8 +473,27 @@ class LimitlessDecisionLoop:
             return base | {"stage": "TRIAGE_SKIP"}
         return await self._judge_core(cand, brief, base, cfg)
 
-    async def _judge_core(self, cand: Any, brief: str, base: dict[str, Any], cfg: Any) -> dict[str, Any]:
-        """Comitato completo (2 stime indipendenti + giudice) fino all'eventuale esecuzione."""
+    async def _judge_core(self, cand: Any, brief: str, base: dict[str, Any], cfg: Any,
+                          fast: bool = False) -> dict[str, Any]:
+        """Comitato fino all'eventuale esecuzione. fast=True (prior quantitativo presente):
+        un SOLO giudizio ancorato al prior — il numero lo ha gia' dato il rating, le due
+        stime LLM sarebbero ridondanti e lente."""
+        if fast:
+            judge = await self.llm.complete(
+                "final_portfolio_manager",
+                [{"role": "user", "content": (
+                    f"{brief}\n\nA QUANTITATIVE PRIOR (Elo rating) is embedded above. Produce the final "
+                    "calibrated probability anchored on that prior — adjust only for strong, concrete "
+                    "public news (injury, retirement, lineup) — plus the confidence, and decision: "
+                    "TRADE_YES if the market underprices YES, TRADE_NO if it overprices it, PASS "
+                    "otherwise. The desk pays ~3% fees plus spread: a REAL pricing error vs the current "
+                    "price is required. Make sure YES is mapped to the correct side of the matchup.")}],
+                schema=JudgeOut,
+            )
+            if not judge.parsed:
+                self._set_cooldown(cand.market_id, 1800)
+                return base | {"stage": "JUDGE_FAILED"}
+            return await self._decide_and_execute(cand, judge.parsed, base, cfg)
         est_prompt = (
             "Estimate the probability that this market resolves YES. ALWAYS start from the historical "
             "base rate of the category, then update on evidence: for sports transfer rumors, anticipated "
@@ -506,9 +525,12 @@ class LimitlessDecisionLoop:
             self._set_cooldown(cand.market_id, 3600)
             return base | {"stage": "JUDGE_FAILED"}
 
-        j: JudgeOut = judge.parsed
-        # i giudizi LLM durano minuti: ri-prezza il mercato via API prima di decidere l'ingresso
-        quote = await self._fresh_quote(cand, quote)
+        return await self._decide_and_execute(cand, judge.parsed, base, cfg)
+
+    async def _decide_and_execute(self, cand: Any, j: JudgeOut, base: dict[str, Any], cfg: Any) -> dict[str, Any]:
+        """Dal giudizio all'ordine: reprice eseguibile -> edge -> soglie -> esecuzione."""
+        # il giudizio richiede tempo: ri-prezza il mercato (prezzo ESEGUIBILE) prima dell'ingresso
+        quote = await self._fresh_quote(cand, None)
         if quote is None:
             self._set_cooldown(cand.market_id, cfg.judged_cooldown_s)
             log.info("limitless.reprice_skip", market=cand.market_id, title=cand.title[:70])
