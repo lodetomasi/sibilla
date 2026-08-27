@@ -128,3 +128,12 @@ def test_held_edge_news_exit_rule():
     assert held_edge(0.20, "NO", 0.50, 0.52) > 0     # NO ancora value: tenere
     assert held_edge(0.70, "YES", 0.55, 0.57) > 0
     assert held_edge(0.40, "YES", 0.55, 0.57) < 0    # YES senza edge: vendere
+
+
+def test_trade_feed_line_parser():
+    from api.app import _parse_feed_line
+    line = ("2026-08-27T19:18:12.153942Z [info     ] limitless.onchain.filled       "
+            "expectedShares=51.232158 market=julian-alvarez-to-leave side=NO usdc=25.0")
+    row = _parse_feed_line(line)
+    assert row["kind"] == "COMPRATO" and row["side"] == "NO" and "51.232158" in row["detail"]
+    assert _parse_feed_line("2026-08-27T19:01:42Z [info     ] collector.run duration_s=1.0") is None

@@ -191,6 +191,42 @@ async def real_wealth() -> dict[str, Any]:
     return out
 
 
+_FEED_EVENTS = {"maker.redeemed": "INCASSATO", "limitless.onchain.filled": "COMPRATO",
+                "limitless.onchain.sold": "VENDUTO", "maker.set_completion": "SET COMPLETATO",
+                "limitless.news_exit": "NEWS EXIT"}
+
+
+def _parse_feed_line(line: str) -> dict[str, Any] | None:
+    """Riga structlog -> voce feed (solo operazioni REALI: compri, vendite, redeem)."""
+    import re
+    m = re.match(r"^(\S+?)Z?\s+\[\w+\s*\]\s+(\S+)\s+(.*)$", line.strip())
+    if not m or m.group(2) not in _FEED_EVENTS:
+        return None
+    ts, event, rest = m.groups()
+    kv = {k: v.strip("'") for k, v in re.findall(r"(\w+)=('[^']*'|\S+)", rest)}
+    nice = {k: kv[k] for k in ("usdc", "expectedShares", "usdcReceived", "sharesSold",
+                               "price", "size", "tx", "status") if k in kv}
+    return {"ts": ts[:19], "kind": _FEED_EVENTS[event], "market": kv.get("market", ""),
+            "side": kv.get("side", ""), "detail": " · ".join(f"{k} {v}" for k, v in nice.items())}
+
+
+@app.get("/api/feed")
+async def trade_feed() -> list[dict[str, Any]]:
+    """Ultime operazioni reali del desk, dalla coda del log (nessun nuovo stato da mantenere)."""
+    from pathlib import Path
+    path = Path("data/runner.log")
+    if not path.exists():
+        return []
+    try:
+        with path.open("rb") as fh:
+            fh.seek(max(0, path.stat().st_size - 512_000))
+            lines = fh.read().decode(errors="ignore").splitlines()
+    except OSError:
+        return []
+    rows = [r for r in (_parse_feed_line(ln) for ln in lines) if r]
+    return rows[-40:][::-1]
+
+
 @app.get("/api/positions")
 async def positions(db: AsyncSession = Depends(get_db)) -> list[dict[str, Any]]:
     rows = await Repository(db).open_positions(_mode())

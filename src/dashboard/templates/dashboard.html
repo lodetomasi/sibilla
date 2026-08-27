@@ -117,6 +117,13 @@ small{color:var(--muted)}
   </section>
 
   <section>
+    <h2 class="live">Feed operazioni</h2>
+    <div class="tbl" style="max-height:260px"><table id="feed"><thead><tr>
+      <th>Ora</th><th>Azione</th><th>Mercato</th><th>Lato</th><th>Dettaglio</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
     <h2>Mirror paper · risk engine <span class="age" id="age-mirror"></span></h2>
     <div class="strip" id="kpis"></div>
   </section>
@@ -213,6 +220,7 @@ async function refresh(){
  const ag=await j('/api/agent-activity');document.querySelector('#agents tbody').innerHTML=ag.map(a=>`<tr><td>${a.ts.slice(11,19)}</td><td class=t>${a.agent}</td><td><small>${a.model}</small></td><td>${f(a.confidence)}</td><td>${a.latency_ms?Math.round(a.latency_ms)+'ms':''}</td><td>${f(a.cost_usd,4)}</td><td><small>${a.error?'<span class=neg>'+a.error.slice(0,80)+'</span>':a.summary}</small></td></tr>`).join('')||'<tr class=empty><td colspan=7>nessuna attività recente del comitato</td></tr>';
  const ev=await j('/api/events');document.querySelector('#events tbody').innerHTML=ev.map(e=>`<tr><td>${e.detected_at.slice(11,19)}</td><td>${e.kind}</td><td><small>${e.title.slice(0,110)}</small></td><td>${e.category}</td><td>${f(e.reliability)}</td><td><small>${e.status}</small></td></tr>`).join('')||'<tr class=empty><td colspan=6>nessun evento rilevato</td></tr>';
  const w=await j('/api/wallets');document.querySelector('#wallets tbody').innerHTML=w.map(x=>`<tr><td><small>${x.address.slice(0,10)}…</small></td><td>${x.category}</td><td>${f(x.score,3)}</td><td>${pct(x.roi)}</td><td>${pct(x.win_rate)}</td><td class="${cls(x.pnl)}">${f(x.pnl)}</td><td>${x.sample_size}</td><td>${f(x.clv,4)}</td></tr>`).join('')||'<tr class=empty><td colspan=8>nessuno score wallet ancora — il collector accumula campioni</td></tr>';
+ const fd=await j('/api/feed');document.querySelector('#feed tbody').innerHTML=fd.map(x=>`<tr><td>${x.ts.slice(11)}</td><td><span class="badge ${x.kind==='VENDUTO'?'amber':x.kind==='NEWS EXIT'?'bad':'ok'}">${x.kind}</span></td><td class=t>${x.market}</td><td>${x.side||''}</td><td><small>${x.detail||''}</small></td></tr>`).join('')||'<tr class=empty><td colspan=5>nessuna operazione ancora — il feed si popola a ogni compra/vendita/incasso</td></tr>';
  document.getElementById('clock').textContent=new Date().toISOString().slice(11,19)+' UTC';
  stampAge('mirror');
  }catch(e){console.error(e)}}
