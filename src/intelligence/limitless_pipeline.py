@@ -448,8 +448,15 @@ class LimitlessDecisionLoop:
         return None
 
     async def _judge_one(self, cand: Any, quote: Any, cfg: Any) -> dict[str, Any]:
-        brief = _market_brief(cand) + await self._cross_intel(cand) + await self._sports_prior(cand)
+        sports_prior = await self._sports_prior(cand)
+        brief = _market_brief(cand) + await self._cross_intel(cand) + sports_prior
         base: dict[str, Any] = {"market": cand.market_id, "title": cand.title[:80], "executed": False}
+
+        if sports_prior:
+            # prior quantitativo presente (rating Elo): il mercato e' giudicabile per
+            # costruzione — dritto al comitato, senza pagare (ne' rischiare) il triage LLM
+            log.info("limitless.triage_bypass", market=cand.market_id, reason="quantitative_prior")
+            return await self._judge_core(cand, brief, base, cfg)
 
         triage = await self.llm.complete(
             "high_volume_filter",
@@ -464,7 +471,10 @@ class LimitlessDecisionLoop:
             self._set_cooldown(cand.market_id, 12 * 3600)
             log.info("limitless.triage_skip", market=cand.market_id, reason=(triage.parsed.reason if triage.parsed else "no-parse")[:120])
             return base | {"stage": "TRIAGE_SKIP"}
+        return await self._judge_core(cand, brief, base, cfg)
 
+    async def _judge_core(self, cand: Any, brief: str, base: dict[str, Any], cfg: Any) -> dict[str, Any]:
+        """Comitato completo (2 stime indipendenti + giudice) fino all'eventuale esecuzione."""
         est_prompt = (
             "Estimate the probability that this market resolves YES. ALWAYS start from the historical "
             "base rate of the category, then update on evidence: for sports transfer rumors, anticipated "

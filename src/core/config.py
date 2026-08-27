@@ -68,7 +68,7 @@ class RiskLimits(BaseModel):
     max_order_latency_ms: int = 5000
     max_data_staleness_s: float = 5.0          # feed broker (IG stream/REST)
     max_public_data_staleness_s: float = 150.0  # fallback pubblico a 1 minuto (solo PAPER/SHADOW)
-    max_open_positions: int = 6
+    max_open_positions: int = 10
     live: bool = False                     # ordini REALI delegati (richiede deposito)
     onchain: bool = False                  # esecuzione AMM on-chain col wallet bot (permissionless)
     private_key: SecretStr | None = None   # chiave EOA bot (solo per onchain; mai in log)
@@ -402,10 +402,10 @@ class LimitlessConfig(BaseModel):
     max_price: float = 0.95
     min_hours_to_expiry: float = 1.0
     min_edge: float = 0.05                 # punti probabilita' netti dopo fee+spread
-    min_confidence: float = 0.55
+    min_confidence: float = 0.50           # abbassata su richiesta esplicita dell'utente (era 0.55)
     fee_bps: int = 300                     # taker fee worst case
     judged_cooldown_s: float = 3600.0      # non ri-giudicare lo stesso mercato per 1h (i prezzi si muovono)
-    max_open_positions: int = 6
+    max_open_positions: int = 10
     live: bool = False                     # ordini REALI delegati (richiede deposito)
     onchain: bool = False                  # esecuzione AMM on-chain col wallet bot (permissionless)
     private_key: SecretStr | None = None   # chiave EOA bot (solo per onchain; mai in log)
