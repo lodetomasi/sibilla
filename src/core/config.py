@@ -269,13 +269,13 @@ class LLMConfig(BaseModel):
     independent_analyst: LLMRole = Field(
         default_factory=lambda: LLMRole(
             model="qwen/qwen3.8-max", role="independent_investment_analyst",
-            reasoning_effort="high", max_output_tokens=6000, max_tool_turns=4,
+            reasoning_effort="medium", max_output_tokens=6000, max_tool_turns=4, timeout_s=180,
         )
     )
     contrarian_agent: LLMRole = Field(
         default_factory=lambda: LLMRole(
             model="x-ai/grok-4.6", role="market_narrative_contrarian",
-            reasoning_effort="high", max_output_tokens=6000, max_tool_turns=4,
+            reasoning_effort="medium", max_output_tokens=6000, max_tool_turns=4, timeout_s=180,
         )
     )
     adversarial_red_team: LLMRole = Field(
