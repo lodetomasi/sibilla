@@ -11,6 +11,8 @@ a verifiable on-chain transaction.
 Named after the Cumaean Sibyl, who famously sold her prophecies at
 ever-increasing prices.
 
+![SIBILLA live dashboard](docs/assets/dashboard.png)
+
 ## How it makes money
 
 | Engine | Edge | Mechanism |

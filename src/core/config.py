@@ -404,7 +404,7 @@ class LimitlessConfig(BaseModel):
     min_edge: float = 0.05                 # punti probabilita' netti dopo fee+spread
     min_confidence: float = 0.55
     fee_bps: int = 300                     # taker fee worst case
-    judged_cooldown_s: float = 10800.0     # non ri-giudicare lo stesso mercato per 3h
+    judged_cooldown_s: float = 3600.0      # non ri-giudicare lo stesso mercato per 1h (i prezzi si muovono)
     max_open_positions: int = 6
     live: bool = False                     # ordini REALI delegati (richiede deposito)
     onchain: bool = False                  # esecuzione AMM on-chain col wallet bot (permissionless)

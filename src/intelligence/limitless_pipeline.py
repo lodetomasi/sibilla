@@ -157,7 +157,7 @@ class LimitlessDecisionLoop:
         h = utcnow().hour
         if getattr(self, "_news_h", None) != h:
             self._news_h, self._news_n = h, 0
-        if self._news_n >= 4:
+        if self._news_n >= 6:
             return None
         from rapidfuzz import fuzz
         title = (detected.title or "").lower()
@@ -245,7 +245,7 @@ class LimitlessDecisionLoop:
             if cand.epic in open_epics or self._in_cooldown(cand.market_id):
                 continue
             cat = (cand.categories[0].lower() if cand.categories else "other")
-            if category_seen.get(cat, 0) >= 2:
+            if category_seen.get(cat, 0) >= 3:
                 continue
             category_seen[cat] = category_seen.get(cat, 0) + 1
             quote = self.prices.cached(cand.epic)
