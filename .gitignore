@@ -1,0 +1,28 @@
+# --- secrets & runtime state: NEVER commit ---
+data/
+*.env
+.env*
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+# --- local/operational docs (not part of the public codebase) ---
+CLAUDE.md
+requisiti*.md
+docs/RUNBOOK.md
+docs/plans/
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- tooling ---
+.claude/
+.impeccable/
+.DS_Store
+nohup.out
