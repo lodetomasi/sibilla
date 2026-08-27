@@ -65,7 +65,7 @@ Design rules learned the hard way (all enforced in code):
 
 ```bash
 make install                 # Python 3.12 venv + deps
-cp .env.example .env         # fill in your keys (never committed)
+cp env.example .env          # fill in your keys (never committed)
 make initdb
 make test
 bash scripts/supervise.sh    # supervisor: auto-restart, log rotation,
