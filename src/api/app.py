@@ -192,6 +192,7 @@ async def real_wealth() -> dict[str, Any]:
 
 
 _FEED_EVENTS = {"maker.redeemed": "INCASSATO", "limitless.onchain.filled": "COMPRATO",
+                "limitless.clob.filled": "COMPRATO",
                 "limitless.onchain.sold": "VENDUTO", "maker.set_completion": "SET COMPLETATO",
                 "limitless.news_exit": "NEWS EXIT"}
 
