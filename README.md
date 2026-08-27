@@ -42,6 +42,11 @@ scripts/         ops: supervisor, desk report, balance check, position exit
 tests/           unit + integration (mocked venues), iron-rule invariants
 ```
 
+> **Legacy note:** the tree also carries an earlier event-driven CFD engine
+> (`collectors/ig`, `execution/ig`, strategies A–E and their prompts). It ships
+> disabled (`ATS_IG_ENABLED=0`) and is kept for reference only — the production
+> path is the Limitless pipeline described above.
+
 Design rules learned the hard way (all enforced in code):
 
 - **Never trust a single RPC.** Reads probe multiple endpoints; transaction

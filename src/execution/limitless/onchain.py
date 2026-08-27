@@ -104,6 +104,16 @@ class OnchainAmmGateway:
         self._acct = Account.from_key(private_key)
         self.address = self._acct.address
         self._usdc = self._w3.eth.contract(address=Web3.to_checksum_address(USDC), abi=ERC20_ABI)
+        # peer di sola lettura per il nonce: i nodi bilanciati possono restituire pending
+        # stantii, quindi il nonce si prende come MASSIMO tra piu' nodi (+ contatore locale)
+        self._nonce_peers = []
+        for _rpc in ("https://base-rpc.publicnode.com", "https://base.drpc.org"):
+            try:
+                _p = Web3(Web3.HTTPProvider(_rpc, request_kwargs={"timeout": 8}))
+                _p.eth.block_number
+                self._nonce_peers.append(_p)
+            except Exception:  # noqa: BLE001 - peer opzionale
+                continue
         self._market_client = market_client
         self.max_usdc_per_order = max_usdc_per_order
         self.slippage_bps = slippage_bps
@@ -111,9 +121,14 @@ class OnchainAmmGateway:
 
     # ------------------------------------------------------------- sync core
     def _send(self, fn: Any) -> str:
-        # nonce robusto: max tra pending on-chain e contatore locale (i nodi bilanciati
+        # nonce robusto: MASSIMO tra piu' nodi + contatore locale (i nodi bilanciati
         # possono non aver ancora indicizzato la tx precedente -> "nonce too low")
         chain_nonce = self._w3.eth.get_transaction_count(self.address, "pending")
+        for peer in getattr(self, "_nonce_peers", []):
+            try:
+                chain_nonce = max(chain_nonce, peer.eth.get_transaction_count(self.address, "pending"))
+            except Exception:  # noqa: BLE001 - peer momentaneamente giu'
+                continue
         nonce = max(chain_nonce, getattr(self, "_next_nonce", 0))
         tx = fn.build_transaction({
             "from": self.address,

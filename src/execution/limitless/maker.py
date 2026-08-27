@@ -485,6 +485,10 @@ class CompleteSetMaker:
         fn = ctf.functions.redeemPositions(
             Web3.to_checksum_address(USDC), b"\x00" * 32, bytes.fromhex(condition_id[2:]), [1, 2])
         chain_nonce = w3.eth.get_transaction_count(self.address, "pending")
+        try:  # secondo nodo: i pending stantii dei nodi bilanciati causano "nonce too low"
+            chain_nonce = max(chain_nonce, self._w3.eth.get_transaction_count(self.address, "pending"))
+        except Exception:  # noqa: BLE001
+            pass
         nonce = max(chain_nonce, getattr(self, "_next_nonce", 0))
         tx = fn.build_transaction({"from": self.address, "nonce": nonce,
                                    "maxFeePerGas": w3.eth.gas_price * 2,
