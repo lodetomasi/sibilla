@@ -92,13 +92,13 @@ def _fmt_expiry(expiry: datetime | None) -> str:
 
 def _market_brief(cand: Any) -> str:
     return (
-        f"Mercato di previsione (Limitless, risoluzione binaria YES/NO):\n"
-        f"TITOLO: {cand.title}\n"
-        f"CATEGORIE: {', '.join(cand.categories) or 'n/d'}\n"
-        f"PREZZO YES ATTUALE: {cand.yes_price:.3f} (= probabilita' implicita del mercato)\n"
+        f"Prediction market (Limitless, binary YES/NO resolution):\n"
+        f"TITLE: {cand.title}\n"
+        f"CATEGORIES: {', '.join(cand.categories) or 'n/a'}\n"
+        f"CURRENT YES PRICE: {cand.yes_price:.3f} (= market-implied probability)\n"
         f"VOLUME: {cand.volume:,.0f} USDC\n"
-        f"SCADENZA: {_fmt_expiry(cand.expiry)}\n"
-        f"DATA ODIERNA: {utcnow().date().isoformat()}"
+        f"EXPIRY: {_fmt_expiry(cand.expiry)}\n"
+        f"TODAY'S DATE: {utcnow().date().isoformat()}"
     )
 
 
@@ -202,11 +202,11 @@ class LimitlessDecisionLoop:
             cand = next((c for c in self.collector.candidates if c.slug == slug), None)
             quote = await gw.fresh_quote(market_slug=slug, epic=(cand.epic if cand else f"LMTS:{slug[:12]}"))
             judge = await self.llm.complete("final_portfolio_manager", [{"role": "user", "content": (
-                f"NEWS APPENA USCITA: {detected.title}. {str(getattr(detected, 'summary', ''))[:300]}\n"
-                f"Mercato di previsione: '{pos.get('title') or slug}'. Prezzo YES attuale "
-                f"bid {quote.bid:.2f} / ask {quote.offer:.2f}. Deteniamo {float(pos.get('shares') or 0):.1f} "
-                f"quote {side}. Alla luce della news, produci probability (p che il mercato risolva YES) "
-                f"aggiornata, confidence, decision.")}], schema=JudgeOut)
+                f"BREAKING NEWS: {detected.title}. {str(getattr(detected, 'summary', ''))[:300]}\n"
+                f"Prediction market: '{pos.get('title') or slug}'. Current YES price "
+                f"bid {quote.bid:.2f} / ask {quote.offer:.2f}. We hold {float(pos.get('shares') or 0):.1f} "
+                f"{side} shares. In light of the news, produce the updated probability (p that the market "
+                f"resolves YES), confidence, decision.")}], schema=JudgeOut)
             if not judge.parsed:
                 continue
             edge = held_edge(judge.parsed.probability, side, quote.bid, quote.offer)
@@ -289,9 +289,9 @@ class LimitlessDecisionLoop:
                     ph, pd, pa = elo_1x2(row)
                     log.info("limitless.sports_prior", market=cand.market_id, home=h, away=a,
                              p=f"{ph:.2f}/{pd:.2f}/{pa:.2f}")
-                    return (f"\nPRIOR QUANTITATIVO (ClubElo, rating Elo storico): {h} vince {ph:.0%}, "
-                            f"pareggio {pd:.0%}, {a} vince {pa:.0%}. Ancorati a questo prior salvo "
-                            f"notizie fortissime (infortuni chiave, turnover).")
+                    return (f"\nQUANTITATIVE PRIOR (ClubElo, historical Elo ratings): {h} wins {ph:.0%}, "
+                            f"draw {pd:.0%}, {a} wins {pa:.0%}. Anchor on this prior unless there is "
+                            f"very strong news (key injuries, heavy squad rotation).")
         except Exception as exc:  # noqa: BLE001 - prior opzionale: mai bloccare il giudizio
             log.debug("limitless.sports_prior_failed", error=str(exc)[:80])
         # --- tennis: Elo Tennis Abstract (ATP+WTA, copre Challenger e ITF 50K+), cache 24h
@@ -308,10 +308,10 @@ class LimitlessDecisionLoop:
                         p = elo_win_prob(found[0], found[1])
                         log.info("limitless.sports_prior", market=cand.market_id, kind="tennis",
                                  a=names[0][:20], b=names[1][:20], p=round(p, 2))
-                        return (f"\nPRIOR QUANTITATIVO (Elo Tennis Abstract, aggiornato settimanalmente): "
-                                f"{names[0]} batte {names[1]} con probabilita' {p:.0%} (Elo {found[0]:.0f} "
-                                f"vs {found[1]:.0f}). Ancorati a questo prior salvo notizie forti "
-                                f"(ritiro, infortunio, superficie anomala).")
+                        return (f"\nQUANTITATIVE PRIOR (Tennis Abstract Elo, updated weekly): "
+                                f"{names[0]} beats {names[1]} with probability {p:.0%} (Elo {found[0]:.0f} "
+                                f"vs {found[1]:.0f}). Anchor on this prior unless there is strong news "
+                                f"(retirement, injury, unusual surface).")
         except Exception as exc:  # noqa: BLE001
             log.debug("limitless.tennis_prior_failed", error=str(exc)[:80])
         return ""
@@ -454,10 +454,10 @@ class LimitlessDecisionLoop:
         triage = await self.llm.complete(
             "high_volume_filter",
             [{"role": "user", "content": (
-                "Sei il triage di un desk che opera su mercati di previsione. Valuta SOLO se questo mercato "
-                "e' giudicabile con conoscenza pubblica e ragionamento (base rates, notizie note, struttura "
-                "dell'evento) PRIMA della scadenza. Non giudicabile: esiti puramente casuali a brevissimo "
-                "termine (candele orarie), esiti manipolabili, regole ambigue.\n\n" + brief)}],
+                "You are the triage desk of a prediction-market trading firm. Assess ONLY whether this "
+                "market is judgeable using public knowledge and reasoning (base rates, known news, event "
+                "structure) BEFORE expiry. Not judgeable: purely random very-short-term outcomes (hourly "
+                "candles), manipulable outcomes, ambiguous resolution rules.\n\n" + brief)}],
             schema=TriageOut,
         )
         if not triage.parsed or not triage.parsed.judgeable:
@@ -466,12 +466,16 @@ class LimitlessDecisionLoop:
             return base | {"stage": "TRIAGE_SKIP"}
 
         est_prompt = (
-            "Stima la probabilita' che questo mercato risolva YES. Ragiona su base rates, evidenza pubblica "
-            "nota e tempo residuo. NON ancorarti al prezzo di mercato: serve una stima indipendente. "
-            "Rispondi con probability (0-1), confidence (0-1) e max 3 key_reasons.\n\n" + brief
+            "Estimate the probability that this market resolves YES. ALWAYS start from the historical "
+            "base rate of the category, then update on evidence: for sports transfer rumors, anticipated "
+            "announcements and media speculation, the large majority does NOT materialize before expiry — "
+            "media hype is not evidence. Weigh remaining time: outcomes requiring multiple steps (club "
+            "agreement + player consent + medicals) within days carry compound probabilities, not single "
+            "ones. Do NOT anchor on the market price: an independent estimate is required. Reply with "
+            "probability (0-1), confidence (0-1) and up to 3 key_reasons.\n\n" + brief
         )
         est_a = await self.llm.complete("independent_analyst", [{"role": "user", "content": est_prompt}], schema=ProbEstimate)
-        est_b = await self.llm.complete("contrarian_agent", [{"role": "user", "content": est_prompt + "\n\nSei il contrarian: cerca attivamente perche' il consenso potrebbe sbagliare."}], schema=ProbEstimate)
+        est_b = await self.llm.complete("contrarian_agent", [{"role": "user", "content": est_prompt + "\n\nYou are the contrarian: actively look for reasons the consensus could be wrong."}], schema=ProbEstimate)
         if not est_a.parsed or not est_b.parsed:
             self._set_cooldown(cand.market_id, 3600)
             return base | {"stage": "ESTIMATE_FAILED"}
@@ -479,13 +483,13 @@ class LimitlessDecisionLoop:
         judge = await self.llm.complete(
             "final_portfolio_manager",
             [{"role": "user", "content": (
-                f"{brief}\n\nSTIME INDIPENDENTI DEL COMITATO:\n"
-                f"- analista: p={est_a.parsed.probability:.3f} conf={est_a.parsed.confidence:.2f} ({'; '.join(est_a.parsed.key_reasons[:3])})\n"
+                f"{brief}\n\nINDEPENDENT COMMITTEE ESTIMATES:\n"
+                f"- analyst: p={est_a.parsed.probability:.3f} conf={est_a.parsed.confidence:.2f} ({'; '.join(est_a.parsed.key_reasons[:3])})\n"
                 f"- contrarian: p={est_b.parsed.probability:.3f} conf={est_b.parsed.confidence:.2f} ({'; '.join(est_b.parsed.key_reasons[:3])})\n\n"
-                "Sei il giudice finale del desk. Produci la probabilita' finale calibrata, la confidence, e "
-                "decision: TRADE_YES se il mercato sottoprezza YES, TRADE_NO se lo sovraprezza, PASS se l'edge "
-                "e' dubbio o l'evento non e' giudicabile meglio del mercato. Il desk paga ~3% di fee piu' lo "
-                "spread: serve un errore di prezzo VERO, non una sfumatura.")}],
+                "You are the desk's final judge. Produce the final calibrated probability, the confidence, "
+                "and decision: TRADE_YES if the market underprices YES, TRADE_NO if it overprices it, PASS "
+                "if the edge is doubtful or the event cannot be judged better than the market. The desk "
+                "pays ~3% fees plus spread: a REAL pricing error is required, not a nuance.")}],
             schema=JudgeOut,
         )
         if not judge.parsed:

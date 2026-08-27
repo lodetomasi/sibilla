@@ -237,11 +237,11 @@ class CompleteSetMaker:
                 toxic: bool
                 reason: str = ""
 
-            prompt = ("Sei il risk officer di un market maker passivo su mercati binari a breve scadenza. "
-                      f"Mercato: '{slug.replace('-', ' ')}', scade {m['expiry'].isoformat()} (ora: {utcnow().isoformat()}). "
-                      "toxic=true SOLO se c'e' un evento programmato imminente o volatilita' eccezionale in corso "
-                      "che rende tossico quotare passivamente ADESSO (es. dato macro/Fed a minuti, crash in corso). "
-                      "Il normale rumore di mercato NON e' tossico.")
+            prompt = ("You are the risk officer of a passive market maker on short-dated binary markets. "
+                      f"Market: '{slug.replace('-', ' ')}', expires {m['expiry'].isoformat()} (now: {utcnow().isoformat()}). "
+                      "toxic=true ONLY if an imminent scheduled event or exceptional ongoing volatility makes "
+                      "passive quoting toxic RIGHT NOW (e.g. macro/Fed release within minutes, crash in progress). "
+                      "Normal market noise is NOT toxic.")
             res = await get_llm_client().complete("high_volume_filter", [{"role": "user", "content": prompt}], schema=MakerVeto)
             if res.parsed and res.parsed.toxic:
                 self._veto_until[slug] = utcnow() + timedelta(minutes=30)
