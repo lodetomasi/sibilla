@@ -395,13 +395,13 @@ class LimitlessConfig(BaseModel):
     api_key: SecretStr | None = None       # HMAC lmts-api-key (solo endpoint autenticati)
     api_secret: SecretStr | None = None
     scan_interval_s: float = 90.0
-    judge_interval_s: float = 120.0
+    judge_interval_s: float = 90.0
     max_judged_per_cycle: int = 10         # giudizi profondi del comitato per ciclo (budget LLM, alzato con bankroll 160)
     max_pages: int = 20                    # 20 x 25 = fino a 500 mercati per scan
     min_price: float = 0.05                # fuori da qui il prezzo non e' informativo
     max_price: float = 0.95
     min_hours_to_expiry: float = 1.0
-    min_edge: float = 0.05                 # punti probabilita' netti dopo fee+spread
+    min_edge: float = 0.04                 # punti probabilita' netti dopo fee+spread (pavimento: sotto, l'errore di stima domina)
     min_confidence: float = 0.50           # abbassata su richiesta esplicita dell'utente (era 0.55)
     fee_bps: int = 300                     # taker fee worst case
     judged_cooldown_s: float = 3600.0      # non ri-giudicare lo stesso mercato per 1h (i prezzi si muovono)
