@@ -448,6 +448,12 @@ class LimitlessDecisionLoop:
         return None
 
     async def _judge_one(self, cand: Any, quote: Any, cfg: Any) -> dict[str, Any]:
+        # eseguibilita' PRIMA di spendere giudizi: il gateway on-chain compra solo pool AMM —
+        # un mercato CLOB giudicato finirebbe comunque in reprice_skip (visto sul campo)
+        if (self.live_gateway is not None and not hasattr(self.live_gateway, "place_fok")
+                and getattr(cand, "trade_type", "amm") != "amm"):
+            self._set_cooldown(cand.market_id, 6 * 3600)
+            return {"market": cand.market_id, "stage": "NOT_EXECUTABLE"}
         sports_prior = await self._sports_prior(cand)
         brief = _market_brief(cand) + await self._cross_intel(cand) + sports_prior
         base: dict[str, Any] = {"market": cand.market_id, "title": cand.title[:80], "executed": False}
