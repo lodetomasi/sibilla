@@ -93,6 +93,7 @@ class EtoroRunner:
             pairs.append((c, history))
         momentum = momentum_candidates(pairs)[:MAX_JUDGED_PER_CYCLE]
         if not momentum:
+            log.info("etoro.runner.no_momentum_candidates", scanned=len(candidates))
             return
 
         quotes = await self.rates.quotes_for([m.instrument_id for m in momentum])

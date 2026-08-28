@@ -146,7 +146,7 @@ class EtoroConfig(BaseModel):
     read_rate_limit_per_min: int = 55
     write_rate_limit_per_min: int = 18
     request_timeout_s: float = 15.0
-    max_penny_price_usd: float = 10.0
+    max_penny_price_usd: float = 50.0
     max_instruments_per_rates_call: int = 100
 
     @property

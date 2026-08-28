@@ -112,22 +112,26 @@ async def test_close_position_emits_position_closed() -> None:
 @pytest.mark.asyncio
 async def test_positions_maps_to_broker_position_list() -> None:
     client = AsyncMock()
+    client.settings.execution_mode.uses_real_money = False
     client.get.return_value = {
-        "positions": [
-            {
-                "positionId": "pos-1",
-                "instrumentId": 100000,
-                "isBuy": True,
-                "units": 100,
-                "openRate": 4.30,
-                "stopLossRate": 4.00,
-                "takeProfitRate": 5.00,
-            }
-        ]
+        "clientPortfolio": {
+            "positions": [
+                {
+                    "positionId": "pos-1",
+                    "instrumentId": 100000,
+                    "isBuy": True,
+                    "units": 100,
+                    "openRate": 4.30,
+                    "stopLossRate": 4.00,
+                    "takeProfitRate": 5.00,
+                }
+            ]
+        }
     }
     gateway = EtoroGateway(client=client, emit=AsyncMock())
     positions = await gateway.positions()
 
+    client.get.assert_awaited_once_with("/api/v1/trading/info/demo/pnl")
     assert len(positions) == 1
     p = positions[0]
     assert p.deal_id == "pos-1"
@@ -142,12 +146,18 @@ async def test_positions_maps_to_broker_position_list() -> None:
 
 @pytest.mark.asyncio
 async def test_balances_maps_to_account_state() -> None:
+    # /api/v1/balances* torna vuoto sul conto demo (verificato in produzione 28/8): il
+    # credito virtuale vive in clientPortfolio dello stesso endpoint di positions().
     client = AsyncMock()
-    client.get.return_value = {"credit": 100000.0, "equity": 100250.0, "cash": 95000.0}
+    client.settings.execution_mode.uses_real_money = False
+    client.get.return_value = {
+        "clientPortfolio": {"credit": 100000.0, "unrealizedPnL": 250.0, "positions": []}
+    }
     gateway = EtoroGateway(client=client, emit=AsyncMock())
     account = await gateway.balances()
 
+    client.get.assert_awaited_once_with("/api/v1/trading/info/demo/pnl")
     assert account.currency == "USD"
     assert account.equity == 100250.0
-    assert account.available == 95000.0
+    assert account.available == 100000.0
     assert account.balance == 100000.0

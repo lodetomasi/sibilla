@@ -74,10 +74,14 @@ class EtoroGateway:
         await self._emit(EventType.POSITION_CLOSED, {"positionId": position_id, "result": raw}, source="etoro.gateway")
         return raw
 
+    def _pnl_path(self) -> str:
+        demo = not self.client.settings.execution_mode.uses_real_money
+        return "/api/v1/trading/info/demo/pnl" if demo else "/api/v1/trading/info/real/pnl"
+
     async def positions(self) -> list[BrokerPosition]:
-        raw = await self.client.get("/api/v2/trading/aggregated-portfolio-snapshot")
+        raw = await self.client.get(self._pnl_path())
         out: list[BrokerPosition] = []
-        for p in raw.get("positions", []):
+        for p in raw.get("clientPortfolio", {}).get("positions", []):
             out.append(
                 BrokerPosition(
                     deal_id=str(p["positionId"]),
@@ -94,12 +98,19 @@ class EtoroGateway:
         return out
 
     async def balances(self) -> AccountState:
-        raw = await self.client.get("/api/v1/balances/aggregated")
+        # /api/v1/balances* copre solo i conti REALI finanziati: sul conto demo/practice
+        # (credito virtuale, es. 100.000 USD di default eToro) il saldo vive dentro
+        # clientPortfolio dello stesso endpoint gia' usato da positions() (verificato
+        # 28/8 in produzione: /api/v1/balances tornava balances=[] anche con 100k demo).
+        raw = await self.client.get(self._pnl_path())
+        portfolio = raw.get("clientPortfolio", {})
+        credit = float(portfolio.get("credit", 0.0))
+        unrealized = float(portfolio.get("unrealizedPnL", 0.0))
         return AccountState(
             account_id="etoro",
             currency="USD",
-            balance=float(raw.get("credit", 0.0)),
-            equity=float(raw.get("equity", 0.0)),
-            available=float(raw.get("cash", 0.0)),
+            balance=credit,
+            equity=credit + unrealized,
+            available=credit,
             source="etoro-rest",
         )

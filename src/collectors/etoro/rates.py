@@ -67,7 +67,7 @@ class CandleHistory:
                 high=float(c["high"]),
                 low=float(c["low"]),
                 close=float(c["close"]),
-                volume=float(c["volume"]),
+                volume=float(c.get("volume") or 0.0),
             )
             for c in series
         ]

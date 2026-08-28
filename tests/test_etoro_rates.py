@@ -65,3 +65,25 @@ async def test_daily_candles_returns_close_and_volume_series() -> None:
     assert candles[-1].close == 3.55
     assert candles[-1].volume == 900000
     assert candles[0].close == 3.00
+
+
+@pytest.mark.asyncio
+async def test_daily_candles_defaults_null_volume_to_zero() -> None:
+    # Visto in produzione: alcune candele reali eToro arrivano con volume=null
+    # (es. strumenti a bassa liquidita'/pre-market) -> float(None) crashava il ciclo.
+    client = AsyncMock()
+    client.get.return_value = {
+        "candles": [
+            {
+                "instrumentId": 1,
+                "candles": [
+                    {"fromDate": "2026-08-26T00:00:00Z", "open": 2.90, "high": 3.05, "low": 2.85, "close": 3.00, "volume": None},
+                ],
+            }
+        ]
+    }
+    history = CandleHistory(client=client)
+
+    candles = await history.daily_candles(instrument_id=1, count=1)
+
+    assert candles[0].volume == 0.0
