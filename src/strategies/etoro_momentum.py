@@ -21,8 +21,26 @@ class MomentumCandidate:
     relative_volume: float
 
 
-def momentum_candidates(pairs: list[tuple[InstrumentCandidate, list[DailyCandle]]]) -> list[MomentumCandidate]:
-    out: list[MomentumCandidate] = []
+@dataclass
+class MomentumEvaluation:
+    """Il calcolo per OGNI strumento con storico sufficiente, qualificato o no.
+
+    Serve solo a dare visibilita' (log/dashboard) su cosa ha valutato lo
+    screener anche quando nessun titolo supera le soglie - senza questo, un
+    ciclo a zero candidati e' indistinguibile da uno screener che non ha
+    guardato nulla.
+    """
+
+    instrument_id: int
+    name: str
+    price: float
+    gap_pct: float
+    relative_volume: float
+    qualifies: bool
+
+
+def evaluate_momentum(pairs: list[tuple[InstrumentCandidate, list[DailyCandle]]]) -> list[MomentumEvaluation]:
+    out: list[MomentumEvaluation] = []
     for instrument, history in pairs:
         if len(history) < MIN_HISTORY_LENGTH:
             continue
@@ -36,14 +54,22 @@ def momentum_candidates(pairs: list[tuple[InstrumentCandidate, list[DailyCandle]
         if avg_volume <= 0:
             continue
         relative_volume = last.volume / avg_volume
-        if gap_pct >= MIN_GAP_PCT and relative_volume >= MIN_RELATIVE_VOLUME:
-            out.append(
-                MomentumCandidate(
-                    instrument_id=instrument.instrument_id,
-                    name=instrument.name,
-                    price=last.close,
-                    gap_pct=gap_pct,
-                    relative_volume=relative_volume,
-                )
+        qualifies = gap_pct >= MIN_GAP_PCT and relative_volume >= MIN_RELATIVE_VOLUME
+        out.append(
+            MomentumEvaluation(
+                instrument_id=instrument.instrument_id, name=instrument.name, price=last.close,
+                gap_pct=gap_pct, relative_volume=relative_volume, qualifies=qualifies,
             )
+        )
     return out
+
+
+def momentum_candidates(pairs: list[tuple[InstrumentCandidate, list[DailyCandle]]]) -> list[MomentumCandidate]:
+    return [
+        MomentumCandidate(
+            instrument_id=e.instrument_id, name=e.name, price=e.price,
+            gap_pct=e.gap_pct, relative_volume=e.relative_volume,
+        )
+        for e in evaluate_momentum(pairs)
+        if e.qualifies
+    ]

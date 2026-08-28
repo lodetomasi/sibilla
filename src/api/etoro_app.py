@@ -35,16 +35,43 @@ _LINE_RE = re.compile(r"^(\S+?)Z?\s+\[(\w+)\s*\]\s+(\S+)\s*(.*)$")
 _KV_RE = re.compile(r"(\w+)=('[^']*'|\S+)")
 
 
-def parse_feed_line(line: str) -> dict[str, Any] | None:
+def _parse_structured_line(line: str) -> tuple[str, str, dict[str, str]] | None:
     m = _LINE_RE.match(line.strip())
     if not m:
         return None
-    ts, level, event, rest = m.groups()
+    ts, _level, event, rest = m.groups()
+    detail = {k: v.strip("'") for k, v in _KV_RE.findall(rest)}
+    return ts[:19], event, detail
+
+
+def parse_feed_line(line: str) -> dict[str, Any] | None:
+    parsed = _parse_structured_line(line)
+    if parsed is None:
+        return None
+    ts, event, detail = parsed
     label = _FEED_LABELS.get(event)
     if label is None:
         return None
-    detail = {k: v.strip("'") for k, v in _KV_RE.findall(rest)}
-    return {"ts": ts[:19], "level": level, "event": event, "label": label, "detail": detail}
+    return {"ts": ts, "level": "info", "event": event, "label": label, "detail": detail}
+
+
+def parse_calculation_line(line: str) -> dict[str, Any] | None:
+    """Un calcolo dello screener momentum (etoro.momentum.evaluated): ogni
+    strumento con storico sufficiente, qualificato o no - non solo l'aggregato."""
+    parsed = _parse_structured_line(line)
+    if parsed is None:
+        return None
+    ts, event, detail = parsed
+    if event != "etoro.momentum.evaluated":
+        return None
+    return {
+        "ts": ts,
+        "instrument_id": detail.get("instrument_id"),
+        "name": detail.get("name"),
+        "gap_pct": float(detail["gap_pct"]) if "gap_pct" in detail else None,
+        "relative_volume": float(detail["relative_volume"]) if "relative_volume" in detail else None,
+        "qualifies": detail.get("qualifies") == "True",
+    }
 
 
 def _gateway() -> EtoroGateway:
@@ -78,15 +105,29 @@ async def positions() -> list[dict[str, Any]]:
     return [r.model_dump(mode="json") for r in rows]
 
 
-@app.get("/api/etoro/feed")
-async def feed(limit: int = 60) -> list[dict[str, Any]]:
+def _tail_lines(max_bytes: int) -> list[str]:
     path = PROJECT_ROOT / "data" / "etoro_runner.log"
     if not path.exists():
         return []
     with path.open("rb") as fh:
-        fh.seek(max(0, path.stat().st_size - 300_000))
-        lines = fh.read().decode(errors="ignore").splitlines()
+        fh.seek(max(0, path.stat().st_size - max_bytes))
+        return fh.read().decode(errors="ignore").splitlines()
+
+
+@app.get("/api/etoro/feed")
+async def feed(limit: int = 60) -> list[dict[str, Any]]:
+    lines = _tail_lines(300_000)
     rows = [r for r in (parse_feed_line(ln) for ln in lines) if r]
+    return rows[-limit:][::-1]
+
+
+@app.get("/api/etoro/calculations")
+async def calculations(limit: int = 250) -> list[dict[str, Any]]:
+    """Ogni calcolo dell'ultimo scan (o degli ultimi scan), incluse le esclusioni:
+    finestra piu' ampia del feed principale perche' un solo ciclo puo' valutare
+    fino a 200 strumenti (vedi collectors/etoro/instruments.py TARGET_UNIVERSE_SIZE)."""
+    lines = _tail_lines(1_500_000)
+    rows = [r for r in (parse_calculation_line(ln) for ln in lines) if r]
     return rows[-limit:][::-1]
 
 

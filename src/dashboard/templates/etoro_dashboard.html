@@ -63,17 +63,25 @@ tr:last-child td{border-bottom:none}
       <tbody id="feed-body"><tr><td colspan="3" class="empty">caricamento…</td></tr></tbody>
     </table>
   </section>
+  <section>
+    <h2>Calcoli screener (ultimo scan, ordinati per gap%)</h2>
+    <table id="calc-table">
+      <thead><tr><th>Ora (UTC)</th><th>Strumento</th><th>Gap %</th><th>Volume relativo</th><th>Esito</th></tr></thead>
+      <tbody id="calc-body"><tr><td colspan="5" class="empty">caricamento…</td></tr></tbody>
+    </table>
+  </section>
 </main>
 <script>
 function fmt(n, d=2){ return (typeof n === "number") ? n.toFixed(d) : "—"; }
 
 async function refresh() {
   try {
-    const [status, balance, positions, feed] = await Promise.all([
+    const [status, balance, positions, feed, calcs] = await Promise.all([
       fetch("/api/etoro/status").then(r => r.json()),
       fetch("/api/etoro/balance").then(r => r.json()).catch(() => null),
       fetch("/api/etoro/positions").then(r => r.json()).catch(() => []),
       fetch("/api/etoro/feed").then(r => r.json()).catch(() => []),
+      fetch("/api/etoro/calculations").then(r => r.json()).catch(() => []),
     ]);
 
     document.getElementById("mode-val").textContent = status.mode || "—";
@@ -104,6 +112,23 @@ async function refresh() {
         const detail = Object.entries(f.detail || {}).map(([k, v]) => `${k}=${v}`).join(" · ");
         return `<tr><td class="dim">${f.ts}</td><td class="${cls}">${f.label}</td><td>${detail}</td></tr>`;
       }).join("");
+    }
+
+    const calcBody = document.getElementById("calc-body");
+    if (!calcs.length) {
+      calcBody.innerHTML = '<tr><td colspan="5" class="empty">nessun calcolo registrato</td></tr>';
+    } else {
+      const latestPerInstrument = new Map();
+      for (const c of calcs) {
+        if (!latestPerInstrument.has(c.instrument_id)) latestPerInstrument.set(c.instrument_id, c);
+      }
+      const rows = [...latestPerInstrument.values()].sort((a, b) => (b.gap_pct ?? -1) - (a.gap_pct ?? -1));
+      calcBody.innerHTML = rows.map(c => `<tr>
+        <td class="dim">${c.ts}</td><td>${c.name || c.instrument_id}</td>
+        <td class="${(c.gap_pct ?? 0) >= 0 ? 'up' : 'dn'}">${c.gap_pct != null ? (c.gap_pct * 100).toFixed(2) + '%' : '—'}</td>
+        <td>${c.relative_volume != null ? c.relative_volume.toFixed(2) + 'x' : '—'}</td>
+        <td class="${c.qualifies ? 'up' : 'dim'}">${c.qualifies ? 'QUALIFICA' : 'sotto soglia'}</td>
+      </tr>`).join("");
     }
   } catch (e) {
     console.error(e);

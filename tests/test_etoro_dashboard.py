@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from api.etoro_app import parse_feed_line
+import pytest
+
+from api.etoro_app import parse_calculation_line, parse_feed_line
 
 
 def test_parse_feed_line_recognizes_known_event() -> None:
@@ -31,3 +33,23 @@ def test_parse_feed_line_extracts_quoted_values() -> None:
     assert row is not None
     assert row["label"] == "ERRORE CICLO"
     assert row["detail"]["error"] == "HTTP 404: RouteNotFound"
+
+
+def test_parse_calculation_line_extracts_momentum_evaluation() -> None:
+    line = (
+        "2026-08-28T15:45:00.123456Z [info     ] etoro.momentum.evaluated       "
+        "instrument_id=123 name='Some Co' gap_pct=0.0123 relative_volume=1.45 qualifies=False"
+    )
+    row = parse_calculation_line(line)
+
+    assert row is not None
+    assert row["instrument_id"] == "123"
+    assert row["name"] == "Some Co"
+    assert row["gap_pct"] == pytest.approx(0.0123)
+    assert row["relative_volume"] == pytest.approx(1.45)
+    assert row["qualifies"] is False
+
+
+def test_parse_calculation_line_ignores_other_events() -> None:
+    line = "2026-08-28T15:45:00Z [info     ] etoro.runner.started"
+    assert parse_calculation_line(line) is None

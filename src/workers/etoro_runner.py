@@ -85,15 +85,25 @@ class EtoroRunner:
             return
 
         candidates = await self.universe.refresh()
-        from strategies.etoro_momentum import momentum_candidates
+        from strategies.etoro_momentum import MomentumCandidate, evaluate_momentum
 
         pairs = []
         for c in candidates:
             history = await self.candles.daily_candles(instrument_id=c.instrument_id, count=21)
             pairs.append((c, history))
-        momentum = momentum_candidates(pairs)[:MAX_JUDGED_PER_CYCLE]
+        evaluations = evaluate_momentum(pairs)
+        for e in evaluations:
+            log.info(
+                "etoro.momentum.evaluated", instrument_id=e.instrument_id, name=e.name,
+                gap_pct=round(e.gap_pct, 4), relative_volume=round(e.relative_volume, 2), qualifies=e.qualifies,
+            )
+        momentum = [
+            MomentumCandidate(instrument_id=e.instrument_id, name=e.name, price=e.price, gap_pct=e.gap_pct, relative_volume=e.relative_volume)
+            for e in evaluations
+            if e.qualifies
+        ][:MAX_JUDGED_PER_CYCLE]
         if not momentum:
-            log.info("etoro.runner.no_momentum_candidates", scanned=len(candidates))
+            log.info("etoro.runner.no_momentum_candidates", scanned=len(candidates), evaluated=len(evaluations))
             return
 
         quotes = await self.rates.quotes_for([m.instrument_id for m in momentum])

@@ -6,7 +6,7 @@ import pytest
 
 from collectors.etoro.instruments import InstrumentCandidate
 from collectors.etoro.rates import DailyCandle
-from strategies.etoro_momentum import MomentumCandidate, momentum_candidates
+from strategies.etoro_momentum import MomentumCandidate, evaluate_momentum, momentum_candidates
 
 
 def _candle(day: int, close: float, volume: float) -> DailyCandle:
@@ -53,3 +53,33 @@ def test_requires_minimum_history_length() -> None:
     history = _flat_history([(3.00, 100_000)] * 5 + [(3.55, 900_000)])  # solo 6 candele
 
     assert momentum_candidates([(inst, history)]) == []
+
+
+def test_evaluate_momentum_reports_every_evaluated_instrument_including_rejects() -> None:
+    qualifies = InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)
+    rejects = InstrumentCandidate(instrument_id=2, name="Flat", price=3.00)
+    pairs = [
+        (qualifies, _flat_history([(3.00, 100_000)] * 20 + [(3.55, 900_000)])),
+        (rejects, _flat_history([(3.00, 100_000)] * 20 + [(3.02, 900_000)])),
+    ]
+
+    out = evaluate_momentum(pairs)
+
+    assert len(out) == 2
+    by_id = {e.instrument_id: e for e in out}
+    assert by_id[1].qualifies is True
+    assert by_id[2].qualifies is False
+    assert by_id[2].gap_pct == pytest.approx(0.0067, rel=1e-2)
+
+
+def test_momentum_candidates_matches_qualifying_subset_of_evaluate_momentum() -> None:
+    qualifies = InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)
+    rejects = InstrumentCandidate(instrument_id=2, name="Flat", price=3.00)
+    pairs = [
+        (qualifies, _flat_history([(3.00, 100_000)] * 20 + [(3.55, 900_000)])),
+        (rejects, _flat_history([(3.00, 100_000)] * 20 + [(3.02, 900_000)])),
+    ]
+
+    candidates = momentum_candidates(pairs)
+
+    assert [c.instrument_id for c in candidates] == [1]

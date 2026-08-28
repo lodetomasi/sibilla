@@ -8,7 +8,9 @@ from collectors.etoro.rates import CandleHistory, RatesCollector
 
 RATES_RESPONSE = {
     "rates": [
-        {"instrumentId": 1, "bid": 3.18, "ask": 3.22, "lastExecution": 3.20, "date": "2026-08-28T14:00:00Z"},
+        # campo reale "instrumentID" (I maiuscola) - verificato in produzione 28/8,
+        # diverso da altri endpoint eToro che usano "instrumentId".
+        {"instrumentID": 1, "bid": 3.18, "ask": 3.22, "lastExecution": 3.20, "date": "2026-08-28T14:00:00Z"},
     ]
 }
 
@@ -37,6 +39,20 @@ async def test_quotes_for_maps_bid_ask_to_quote_schema() -> None:
     assert quotes[0].bid == 3.18
     assert quotes[0].offer == 3.22
     assert quotes[0].source == "etoro-rest"
+
+
+@pytest.mark.asyncio
+async def test_quotes_for_skips_rate_without_instrument_id() -> None:
+    # Difesa contro un'altra malformazione vista in produzione (search: item con
+    # solo {"instrumentId": -100000} senza altri campi): mai KeyError su un rate
+    # senza id riconoscibile, semplicemente saltarlo.
+    client = AsyncMock()
+    client.get.return_value = {"rates": [{"bid": 1.0, "ask": 1.1}]}
+    collector = RatesCollector(client=client)
+
+    quotes = await collector.quotes_for([1])
+
+    assert quotes == []
 
 
 @pytest.mark.asyncio

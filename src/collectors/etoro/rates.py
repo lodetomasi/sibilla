@@ -35,9 +35,14 @@ class RatesCollector:
                 params={"instrumentIds": ",".join(str(x) for x in chunk)},
             )
             for r in raw.get("rates", []):
+                # La risposta reale usa "instrumentID" (ID maiuscolo), non "instrumentId"
+                # come altri endpoint eToro (es. search, pnl) - verificato in produzione 28/8.
+                instrument_id = r.get("instrumentID", r.get("instrumentId"))
+                if instrument_id is None:
+                    continue
                 out.append(
                     Quote(
-                        epic=etoro_epic(int(r["instrumentId"])),
+                        epic=etoro_epic(int(instrument_id)),
                         bid=float(r["bid"]),
                         offer=float(r["ask"]),
                         market_status=MarketStatus.TRADEABLE,
