@@ -70,6 +70,14 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]
 
+[tool.coverage.report]
+# Soglia onesta durante la migrazione Limitless->eToro (docs/plans/2026-08-28-etoro-equities-engine/):
+# molto codice mantenuto (api/app.py, collectors/news, collectors/macro, core/http.py) precede
+# qualsiasi requisito di coverage e non e' mai stato coperto da test (CLAUDE.md misura "85 test",
+# mai una percentuale). I moduli eToro nuovi sono scritti con TDD completo; la soglia sale man
+# mano che sostituiscono il codice legacy non testato (Task 12 del piano rimuove i residui orfani).
+fail_under = 55
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

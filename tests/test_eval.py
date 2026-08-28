@@ -1,59 +1,12 @@
-"""Wallet metrics/scoring point-in-time, evaluation (performance, calibrazione, attribution), backtest."""
+"""Evaluation (performance, calibrazione), backtest."""
 from __future__ import annotations
 
 from datetime import timedelta
-from types import SimpleNamespace
-
-import pytest
 
 from core.clock import utcnow
 from evaluation.backtest import simulate_event_trades, walk_forward
 from evaluation.calibration import calibration_metrics
 from evaluation.pnl import performance_metrics
-from wallet.persistence import split_windows
-from wallet.profiler import compute_clv, compute_wallet_metrics
-from wallet.scoring import score_from_metrics, wallet_consensus
-
-
-def trade(ts, market, side, price, size, category="crypto", wallet="0xa"):
-    return SimpleNamespace(ts=ts, condition_id=market, market_external_id=market, asset_id=market, side=side, price=price, size=size, usd_size=price * size, category=category, realized_pnl=None, clv={}, wallet_address=wallet, outcome="Yes")
-
-
-def test_wallet_metrics_point_in_time():
-    t0 = utcnow() - timedelta(days=30)
-    trades = [
-        trade(t0, "m1", "BUY", 0.40, 100), trade(t0 + timedelta(days=1), "m1", "SELL", 0.60, 100),  # +20
-        trade(t0 + timedelta(days=2), "m2", "BUY", 0.50, 100), trade(t0 + timedelta(days=3), "m2", "SELL", 0.45, 100),  # -5
-        trade(t0 + timedelta(days=10), "m3", "BUY", 0.30, 100, category="politics"),
-    ]
-    m = compute_wallet_metrics("0xa", trades, resolutions={"m3": 1.0})
-    assert m.n_trades == 5 and m.n_markets == 3
-    assert m.realized_pnl == pytest.approx(20 - 5 + 70)
-    assert 0 < m.win_rate <= 1 and m.profit_factor > 1
-    assert m.category_distribution["crypto"] > m.category_distribution["politics"]
-    # point-in-time: fino al giorno 5 il mercato m3 non esiste ancora (no lookahead)
-    early = compute_wallet_metrics("0xa", trades, until=t0 + timedelta(days=5))
-    assert early.n_markets == 2 and early.realized_pnl == pytest.approx(15)
-    crypto_only = compute_wallet_metrics("0xa", trades, category="crypto")
-    assert crypto_only.n_trades == 4
-    score, components = score_from_metrics(m)
-    assert 0 < score < 1 and "clv" in components
-
-
-def test_clv_e_consensus():
-    clv = compute_clv(0.50, "BUY", {"+1m": 0.51, "+5m": 0.53, "+30m": None, "+1h": 0.55}, closing_price=0.60, outcome=1.0)
-    assert clv["clv"] == pytest.approx(0.10) and clv["drift_5m"] == pytest.approx(0.03) and clv["drift_30m"] is None
-    now = utcnow()
-    trades = [trade(now - timedelta(minutes=i), "mX", "BUY", 0.6, 100, wallet=f"0x{i}") for i in range(4)] + [trade(now, "mX", "SELL", 0.6, 50, wallet="0x9")]
-    consensus = wallet_consensus(trades, {f"0x{i}": 0.7 for i in range(4)} | {"0x9": 0.6})
-    assert consensus["n_wallets"] == 4 and consensus["side"] == "BUY" and consensus["weighted_signal"] > 0.8
-
-
-def test_split_windows_walk_forward():
-    start = utcnow() - timedelta(days=300)
-    windows = split_windows(start, utcnow(), train_days=90, test_days=60)
-    assert windows and all(a < b < c for a, b, c in windows)
-    assert windows[1][0] == windows[0][0] + timedelta(days=60)
 
 
 def test_performance_e_calibrazione():

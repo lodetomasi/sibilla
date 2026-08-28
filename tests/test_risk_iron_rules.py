@@ -204,10 +204,3 @@ def test_secret_non_esposti_negli_output_tool():
     assert "277e1e74" not in scrubbed["text"]
 
 
-async def test_execution_engine_rifiuta_decisione_non_approvata():
-    from core.schemas import RiskDecision
-    from execution.engine import ExecutionEngine
-
-    engine = ExecutionEngine.__new__(ExecutionEngine)
-    with pytest.raises(RiskViolation):
-        await ExecutionEngine.submit(engine, proposal(), RiskDecision(approved=False))

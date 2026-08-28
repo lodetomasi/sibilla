@@ -145,27 +145,6 @@ class EventDetector:
             await self._persist_and_emit(event)
         return detected
 
-    async def detect_wallet_cluster(self) -> list[DetectedEvent]:
-        from wallet.scoring import qualified_wallets, wallet_consensus
-
-        qualified = {w["address"]: w["score"] for w in await qualified_wallets(min_score=0.55, limit=200)}
-        if not qualified:
-            return []
-        async with session_scope() as session:
-            trades = list(await Repository(session).recent_wallet_trades(minutes=15, addresses=list(qualified), limit=500))
-        consensus = wallet_consensus(trades, qualified)
-        if not consensus or consensus["n_wallets"] < 3:
-            return []
-        event_id = _event_id("wallet", consensus["condition_id"], consensus["side"], utcnow().strftime("%Y%m%d%H"))
-        if event_id in self._seen:
-            return []
-        async with session_scope() as session:
-            market = await Repository(session).get_market("polymarket", consensus["condition_id"])
-        evidence = Evidence(evidence_id=event_id, type=EvidenceType.WALLET, source="polymarket_wallets", source_tier=SourceTier.TIER_3, timestamp=utcnow(), reliability=0.65, impact=consensus["weighted_signal"], summary=str(consensus)[:300], details=consensus)
-        event = DetectedEvent(event_id=event_id, kind="WALLET_CLUSTER", title=f"{consensus['n_wallets']} wallet qualificati {consensus['side']} {consensus['outcome']} su {market.question if market else consensus['condition_id']}", category=Category(market.category) if market else Category.OTHER, evidence=[evidence], polymarket_market_id=consensus["condition_id"], source_reliability=0.65, raw=consensus)
-        await self._persist_and_emit(event)
-        return [event]
-
     # ------------------------------------------------------------ persist
     async def _persist_and_emit(self, event: DetectedEvent) -> None:
         self._seen.add(event.event_id)

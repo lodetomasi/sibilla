@@ -91,106 +91,6 @@ async def opportunities(limit: int = 30, db: AsyncSession = Depends(get_db)) -> 
     return out
 
 
-_REAL_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
-
-
-@app.get("/api/real")
-async def real_wealth() -> dict[str, Any]:
-    """Patrimonio REALE on-chain: cash, valore posizioni ai prezzi dei pool, P&L vs depositi."""
-    import json
-    from pathlib import Path
-
-    import anyio
-
-    import time as _time
-    if _REAL_CACHE["data"] is not None and _time.time() - _REAL_CACHE["ts"] < 45:
-        return _REAL_CACHE["data"]
-    out: dict[str, Any] = {"cash_usdc": None, "eth": None, "positions": [], "total": None, "pnl": None, "baseline": None}
-    reg = {}
-    try:
-        reg = json.loads(Path("data/real_positions.json").read_text())
-    except Exception:  # noqa: BLE001
-        pass
-    out["baseline"] = reg.get("baseline_usdc")
-
-    def _read() -> dict[str, Any]:
-        from web3 import Web3
-
-        from execution.limitless.onchain import ERC20_ABI, USDC, pool_prices_sync
-        RPC_FALLBACKS = ["https://base-rpc.publicnode.com", "https://base.llamarpc.com",
-                         "https://mainnet.base.org", "https://base.drpc.org"]
-        w3 = None
-        rpc_used = None
-        for _rpc in RPC_FALLBACKS:
-            try:
-                _w3 = Web3(Web3.HTTPProvider(_rpc, request_kwargs={"timeout": 10}))
-                _w3.eth.block_number  # probe
-                w3 = _w3
-                rpc_used = _rpc
-                break
-            except Exception:  # noqa: BLE001
-                continue
-        if w3 is None:
-            raise RuntimeError("nessun RPC Base disponibile")
-        bot = "0x9BF9F4eD7C0538531432980643E3456fB7A93D13"
-        usdc = w3.eth.contract(address=Web3.to_checksum_address(USDC), abi=ERC20_ABI)
-        cash = usdc.functions.balanceOf(bot).call() / 1e6
-        eth = w3.eth.get_balance(bot) / 1e18
-        # inventario maker: balanceOf dei positionIds quotati (coppie=1.0, gamba singola ~0.5 approx)
-        maker_value = 0.0
-        maker_rows: list[dict[str, Any]] = []
-        try:
-            mstate = json.loads(Path("data/maker_touched.json").read_text())
-            _ctf_abi = [{"name": "balanceOf", "type": "function", "stateMutability": "view",
-                         "inputs": [{"name": "o", "type": "address"}, {"name": "i", "type": "uint256"}],
-                         "outputs": [{"type": "uint256"}]}]
-            ctf = w3.eth.contract(address=Web3.to_checksum_address("0xC9c98965297Bc527861c898329Ee280632B76e18"), abi=_ctf_abi)
-            for slug, st in mstate.items():
-                pids = (st.get("position_ids") or [])[:2]
-                if len(pids) < 2:
-                    continue
-                qty_yes = ctf.functions.balanceOf(bot, int(pids[0])).call() / 1e6
-                qty_no = ctf.functions.balanceOf(bot, int(pids[1])).call() / 1e6
-                val = 0.5 * (qty_yes + qty_no)
-                maker_value += val
-                if qty_yes > 0.01 or qty_no > 0.01:
-                    maker_rows.append({"title": "[maker] " + slug.replace("-", " ")[:52], "side": f"YES {qty_yes:.1f} / NO {qty_no:.1f}",
-                                       "shares": round(qty_yes + qty_no, 2), "usdc_spent": None,
-                                       "value_now": round(val, 2), "pnl": None})
-        except Exception:  # noqa: BLE001
-            pass
-        positions = []
-        for pos in reg.get("positions", []):
-            value = None
-            try:
-                bid_yes, ask_yes = pool_prices_sync(w3, pos["fpmm"])
-                px = bid_yes if pos["side"] == "YES" else max(0.001, 1.0 - ask_yes)
-                value = round(px * float(pos["shares"]), 2)
-            except Exception:  # noqa: BLE001
-                pass
-            positions.append({**pos, "value_now": value,
-                              "pnl": round(value - float(pos["usdc_spent"]), 2) if value is not None else None})
-        return {"cash": cash, "eth": eth, "positions": positions + maker_rows, "maker_value": round(maker_value, 2), "rpc": rpc_used}
-
-    try:
-        data = await anyio.to_thread.run_sync(_read)
-        out["cash_usdc"] = round(data["cash"], 2)
-        out["eth"] = round(data["eth"], 6)
-        out["positions"] = data["positions"]
-        out["maker_value"] = data.get("maker_value", 0)
-        out["rpc"] = data.get("rpc")
-        pos_value = sum(p["value_now"] or 0 for p in data["positions"])
-        out["total"] = round(data["cash"] + pos_value, 2)
-        if out["baseline"]:
-            out["pnl"] = round(out["total"] - float(out["baseline"]), 2)
-    except Exception as exc:  # noqa: BLE001
-        out["error"] = str(exc)[:150]
-    if out.get("total") is not None:
-        _REAL_CACHE["ts"] = _time.time()
-        _REAL_CACHE["data"] = out
-    return out
-
-
 _FEED_EVENTS = {"maker.redeemed": "INCASSATO", "limitless.onchain.filled": "COMPRATO",
                 "limitless.clob.filled": "COMPRATO",
                 "limitless.onchain.sold": "VENDUTO", "maker.set_completion": "SET COMPLETATO",
@@ -375,13 +275,6 @@ async def set_strategy_status(strategy_id: str, body: StrategyStatusUpdate, db: 
     row = await repo.get_strategy(strategy_id)
     if row is None:
         raise HTTPException(404, "strategia non trovata")
-    if body.status in ("LIVE", "LIVE_SMALL") and row.status in ("DEMO", "PAPER", "SHADOW", "RESEARCH"):
-        # Patch sez. 41: nessun passaggio automatico; qui e' umano ma serve la promotion check
-        from strategies.catalog import promotion_check
-
-        check = await promotion_check(strategy_id, mode=row.status if row.status != "RESEARCH" else "PAPER")
-        if not check["eligible"]:
-            raise HTTPException(409, {"detail": "metriche minime non raggiunte", "check": check})
     before = row.status
     row.status = body.status
     await audit("strategy_status_changed", actor=body.actor, entity="strategy", entity_id=strategy_id, before={"status": before}, after={"status": body.status}, note=body.note)

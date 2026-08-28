@@ -45,18 +45,16 @@ def test_execution_mode_semantica():
     assert not ExecutionMode.PAPER.sends_orders_to_broker
     assert ExecutionMode.DEMO.sends_orders_to_broker and not ExecutionMode.DEMO.uses_real_money
     assert ExecutionMode.LIVE_SMALL.uses_real_money and ExecutionMode.LIVE.uses_real_money
-    assert ExecutionMode.DEMO.ig_environment.value == "DEMO" and ExecutionMode.LIVE.ig_environment.value == "LIVE"
 
 
 def test_settings_flat_override(monkeypatch):
     monkeypatch.setenv("ATS_MAX_RISK_PER_TRADE", "0.004")
     monkeypatch.setenv("ATS_BANKROLL", "500")
-    monkeypatch.setenv("ATS_IG_DEMO_API_KEY", "demo-key-x")
+    monkeypatch.setenv("ATS_ETORO_API_KEY", "demo-key-x")
     settings = load_settings(redis_url=None)
     assert settings.risk.max_risk_per_trade == 0.004
     assert settings.risk.bankroll == 500
-    assert settings.ig.demo.api_key.get_secret_value() == "demo-key-x"
-    assert settings.ig.live.api_key is None or settings.ig.live.api_key.get_secret_value() != "demo-key-x"
+    assert settings.etoro.api_key.get_secret_value() == "demo-key-x"
 
 
 def test_scrub_secrets():

@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from core.enums import AutonomyLevel, ExecutionMode, IGEnvironment
+from core.enums import AutonomyLevel, ExecutionMode
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
@@ -132,82 +132,34 @@ class RiskLimits(BaseModel):
         return self
 
 
-class PolymarketConfig(BaseModel):
-    gamma_url: str = "https://gamma-api.polymarket.com"
-    clob_url: str = "https://clob.polymarket.com"
-    data_url: str = "https://data-api.polymarket.com"
-    ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws"
-    # uscita di rete SOLO per Polymarket (read-only intelligence): es. 'socks5://127.0.0.1:9050'
-    # per Tor, o l'endpoint SOCKS/HTTP di una VPN. Vuoto = diretto + bypass DoH.
-    proxy: str | None = None
-    rps: float = 8.0
-    timeout_s: float = 20.0
+class EtoroConfig(BaseModel):
+    """API pubbliche eToro (public-api.etoro.com, verificate 28/8/2026).
 
-
-class PolymarketTradingConfig(BaseModel):
-    """Trading reale su Polymarket CLOB (venue prediction-market).
-
-    La private key NON va mai in chat/log/git: arriva da env cifrata (enc:) o da
-    secret manager; la firma EIP-712 avviene solo in locale via py-clob-client.
+    Un'unica base URL; l'ambiente demo/real e' nel PATH (/demo/orders), derivato da
+    Settings.execution_mode — nessun env separato per l'ambiente eToro.
     """
 
-    enabled: bool = False
-    private_key: SecretStr | None = None      # chiave del wallet di firma (usa un wallet dedicato a basso saldo)
-    funder_address: str | None = None         # indirizzo del proxy/funder Polymarket che detiene gli USDC
-    signature_type: int = 1                   # 0=EOA, 1=email/magic (Polymarket proxy), 2=browser wallet
-    chain_id: int = 137                       # Polygon mainnet
-    api_key: SecretStr | None = None          # creds L2 CLOB (se gia derivate); altrimenti derivate a runtime
-    api_secret: SecretStr | None = None
-    api_passphrase: SecretStr | None = None
-    max_stake_usdc: float = 5.0               # cap assoluto per ordine (live_small)
-    default_order_type: str = "GTC"           # GTC limit; FOK/GTD supportati
-    tick_size: float = 0.01
-    neg_risk: bool = False
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.private_key and self.funder_address)
-
-
-class IGCredentials(BaseModel):
-    """Credenziali di UN ambiente IG. DEMO e LIVE non condividono nulla (patch sez. 23)."""
-
     api_key: SecretStr | None = None
-    username: str | None = None
-    password: SecretStr | None = None
-    account_id: str | None = None
+    user_key: SecretStr | None = None
+    demo_base_url: str = "https://public-api.etoro.com"
+    live_base_url: str = "https://public-api.etoro.com"
+    read_rate_limit_per_min: int = 55
+    write_rate_limit_per_min: int = 18
+    request_timeout_s: float = 15.0
+    max_penny_price_usd: float = 10.0
+    max_instruments_per_rates_call: int = 100
 
     @property
     def configured(self) -> bool:
-        return bool(self.api_key and self.username and self.password)
+        return bool(self.api_key and self.user_key)
 
+    def base_url(self, mode: ExecutionMode) -> str:
+        return self.live_base_url if mode.uses_real_money else self.demo_base_url
 
-class IGConfig(BaseModel):
-    """Patch sez. 3/23 - IG REST + Streaming."""
-
-    demo: IGCredentials = Field(default_factory=IGCredentials)
-    live: IGCredentials = Field(default_factory=IGCredentials)
-    demo_base_url: str = "https://demo-api.ig.com/gateway/deal"
-    live_base_url: str = "https://api.ig.com/gateway/deal"
-    rps: float = 2.0                 # IG: limiti stretti (circa 30-40 req/min non-trading)
-    trading_rps: float = 1.5
-    timeout_s: float = 15.0
-    session_ttl_s: int = 6 * 3600
-    price_allowance_guard: int = 500  # punti storici residui sotto cui smettere di scaricare
-    default_currency: str = "EUR"
-    streaming_enabled: bool = True
-    confirm_poll_attempts: int = 8
-    confirm_poll_interval_s: float = 0.5
-    reconcile_interval_s: float = 30.0
-
-    def credentials(self, env: IGEnvironment) -> IGCredentials:
-        return self.demo if env is IGEnvironment.DEMO else self.live
-
-    def base_url(self, env: IGEnvironment) -> str:
-        return self.demo_base_url if env is IGEnvironment.DEMO else self.live_base_url
-
-    def configured(self, env: IGEnvironment) -> bool:
-        return self.credentials(env).configured
+    def orders_path(self, mode: ExecutionMode) -> str:
+        if mode.uses_real_money:
+            return "/api/v2/trading/execution/orders"
+        return "/api/v2/trading/execution/demo/orders"
 
 
 class LLMRole(BaseModel):
@@ -388,33 +340,6 @@ class AlertConfig(BaseModel):
     email_to: str | None = None
 
 
-class LimitlessConfig(BaseModel):
-    """Venue Limitless (prediction market su Base, USDC): scan + decisione + esecuzione."""
-
-    enabled: bool = False
-    api_key: SecretStr | None = None       # HMAC lmts-api-key (solo endpoint autenticati)
-    api_secret: SecretStr | None = None
-    scan_interval_s: float = 90.0
-    judge_interval_s: float = 90.0
-    max_judged_per_cycle: int = 10         # giudizi profondi del comitato per ciclo (budget LLM, alzato con bankroll 160)
-    max_pages: int = 20                    # 20 x 25 = fino a 500 mercati per scan
-    min_price: float = 0.05                # fuori da qui il prezzo non e' informativo
-    max_price: float = 0.95
-    min_hours_to_expiry: float = 1.0
-    min_edge: float = 0.04                 # punti probabilita' netti dopo fee+spread (pavimento: sotto, l'errore di stima domina)
-    min_confidence: float = 0.50           # abbassata su richiesta esplicita dell'utente (era 0.55)
-    fee_bps: int = 300                     # taker fee worst case
-    judged_cooldown_s: float = 3600.0      # non ri-giudicare lo stesso mercato per 1h (i prezzi si muovono)
-    max_open_positions: int = 10
-    live: bool = False                     # ordini REALI delegati (richiede deposito)
-    onchain: bool = False                  # esecuzione AMM on-chain col wallet bot (permissionless)
-    private_key: SecretStr | None = None   # chiave EOA bot (solo per onchain; mai in log)
-    clob_api_key: SecretStr | None = None      # token HMAC dell'account EOA bot (CLOB)
-    clob_api_secret: SecretStr | None = None
-    maker: bool = False                    # maker set-completo sui book CLOB
-    live_max_usdc_per_order: float = 2.0   # cap rigido per ordine reale
-
-
 class Settings(BaseSettings):
     """Settings globali; prefisso env ATS_, file .env."""
 
@@ -442,15 +367,12 @@ class Settings(BaseSettings):
     redis_url: str | None = "redis://localhost:6379/0"
     secret_key: SecretStr | None = None
 
-    polymarket: PolymarketConfig = Field(default_factory=PolymarketConfig)
-    ig: IGConfig = Field(default_factory=IGConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     news: NewsConfig = Field(default_factory=NewsConfig)
     macro: MacroConfig = Field(default_factory=MacroConfig)
     alerts: AlertConfig = Field(default_factory=AlertConfig)
     risk: RiskLimits = Field(default_factory=RiskLimits)
-    limitless: LimitlessConfig = Field(default_factory=LimitlessConfig)
-    ig_enabled: bool = True
+    etoro: EtoroConfig = Field(default_factory=EtoroConfig)
 
     # strumenti/venue vietati dalla giurisdizione (hard rule 9)
     blocked_epics: tuple[str, ...] = ()
@@ -460,54 +382,24 @@ class Settings(BaseSettings):
     def dry_run(self) -> bool:
         return not self.execution_mode.sends_orders_to_broker
 
-    @property
-    def ig_environment(self) -> IGEnvironment:
-        return self.execution_mode.ig_environment
-
     @model_validator(mode="after")
     def _live_requires_live_credentials(self) -> Settings:
-        # Patch sez. 41: nessun passaggio automatico DEMO -> LIVE. In LIVE le
-        # credenziali devono essere quelle LIVE e devono esistere.
-        if self.execution_mode.uses_real_money and not self.ig.live.configured:
+        # LIVE/LIVE_SMALL (soldi reali) richiede le chiavi eToro configurate:
+        # nessun passaggio automatico da DEMO, e nessuna esecuzione reale silenziosa
+        # senza credenziali esplicite dell'utente.
+        if self.execution_mode.uses_real_money and not self.etoro.configured:
             raise ValueError(
-                "execution_mode LIVE richiede credenziali IG LIVE (ATS_IG_LIVE_*); "
-                "le credenziali DEMO non vengono mai riutilizzate"
+                "execution_mode LIVE/LIVE_SMALL richiede ATS_ETORO_API_KEY e "
+                "ATS_ETORO_USER_KEY configurate (chiavi Real generate dall'utente "
+                "su eToro Settings -> Trading -> API Key Management)"
             )
         return self
 
 
 _FLAT_MAP: dict[str, tuple[str, ...]] = {
     # env var (senza prefisso) -> percorso nel modello
-    "POLYMARKET_GAMMA_URL": ("polymarket", "gamma_url"),
-    "POLYMARKET_CLOB_URL": ("polymarket", "clob_url"),
-    "POLYMARKET_DATA_URL": ("polymarket", "data_url"),
-    "POLYMARKET_WS_URL": ("polymarket", "ws_url"),
-    "POLYMARKET_RPS": ("polymarket", "rps"),
-    "POLYMARKET_PROXY": ("polymarket", "proxy"),
-    "IG_DEMO_API_KEY": ("ig", "demo", "api_key"),
-    "IG_DEMO_USERNAME": ("ig", "demo", "username"),
-    "IG_DEMO_PASSWORD": ("ig", "demo", "password"),
-    "IG_DEMO_ACCOUNT_ID": ("ig", "demo", "account_id"),
-    "IG_LIVE_API_KEY": ("ig", "live", "api_key"),
-    "IG_LIVE_USERNAME": ("ig", "live", "username"),
-    "IG_LIVE_PASSWORD": ("ig", "live", "password"),
-    "IG_LIVE_ACCOUNT_ID": ("ig", "live", "account_id"),
-    "IG_DEMO_BASE_URL": ("ig", "demo_base_url"),
-    "IG_LIVE_BASE_URL": ("ig", "live_base_url"),
-    "IG_RPS": ("ig", "rps"),
-    "IG_DEFAULT_CURRENCY": ("ig", "default_currency"),
-    "IG_STREAMING_ENABLED": ("ig", "streaming_enabled"),
-    "IG_ENABLED": ("ig_enabled",),
-    "LIMITLESS_ENABLED": ("limitless", "enabled"),
-    "LIMITLESS_API_KEY": ("limitless", "api_key"),
-    "LIMITLESS_API_SECRET": ("limitless", "api_secret"),
-    "LIMITLESS_LIVE": ("limitless", "live"),
-    "LIMITLESS_LIVE_MAX_USDC": ("limitless", "live_max_usdc_per_order"),
-    "LIMITLESS_ONCHAIN": ("limitless", "onchain"),
-    "LIMITLESS_PRIVATE_KEY": ("limitless", "private_key"),
-    "LIMITLESS_CLOB_API_KEY": ("limitless", "clob_api_key"),
-    "LIMITLESS_CLOB_API_SECRET": ("limitless", "clob_api_secret"),
-    "LIMITLESS_MAKER": ("limitless", "maker"),
+    "ETORO_API_KEY": ("etoro", "api_key"),
+    "ETORO_USER_KEY": ("etoro", "user_key"),
     "OPENROUTER_API_KEY": ("llm", "openrouter_api_key"),
     "OPENROUTER_BASE_URL": ("llm", "openrouter_base_url"),
     "LLM_PROVIDER": ("llm", "provider"),
@@ -579,7 +471,7 @@ def _deep_merge(base: dict[str, object], extra: dict[str, object]) -> dict[str, 
 def load_settings(**overrides: object) -> Settings:
     """Costruisce le Settings unendo .env, ambiente e override espliciti.
 
-    Le variabili flat tipo ATS_IG_DEMO_API_KEY vengono mappate sui sotto-modelli:
+    Le variabili flat tipo ATS_ETORO_API_KEY vengono mappate sui sotto-modelli:
     tenere il .env piatto e piu comodo per chi incolla le API una alla volta.
     """
     from dotenv import dotenv_values

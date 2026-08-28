@@ -158,13 +158,6 @@ class MarketStatus(StrEnum):
         return self is MarketStatus.TRADEABLE
 
 
-class IGEnvironment(StrEnum):
-    """Patch sez. 23 - DEMO e LIVE con credenziali separate."""
-
-    DEMO = "DEMO"
-    LIVE = "LIVE"
-
-
 class TimeHorizon(StrEnum):
     SECONDS = "SECONDS"
     MINUTES = "MINUTES"
@@ -258,8 +251,8 @@ class ModelTier(StrEnum):
 class ExecutionMode(StrEnum):
     """Sez. 31-33 - progressione verso il capitale reale.
 
-    SHADOW: decide ma non invia; PAPER: simula fill su prezzi live IG;
-    DEMO: invia a IG demo; LIVE_SMALL/LIVE: capitale reale.
+    SHADOW: decide ma non invia; PAPER: simula fill su prezzi live reali;
+    DEMO: invia a eToro demo; LIVE_SMALL/LIVE: capitale reale.
     """
 
     SHADOW = "SHADOW"
@@ -275,10 +268,6 @@ class ExecutionMode(StrEnum):
     @property
     def uses_real_money(self) -> bool:
         return self in (ExecutionMode.LIVE_SMALL, ExecutionMode.LIVE)
-
-    @property
-    def ig_environment(self) -> IGEnvironment:
-        return IGEnvironment.LIVE if self.uses_real_money else IGEnvironment.DEMO
 
 
 class AutonomyLevel(int, Enum):
