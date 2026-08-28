@@ -16,6 +16,10 @@ from core.logging import get_logger
 
 log = get_logger("collectors.etoro.instruments")
 
+PAGE_SIZE = 500
+TARGET_UNIVERSE_SIZE = 200  # capped: il ciclo di candele e' sequenziale e rate-limited
+MAX_PAGES = 10
+
 
 @dataclass
 class InstrumentCandidate:
@@ -53,19 +57,39 @@ class InstrumentUniverse:
         if cached is not None:
             return cached
 
-        raw = await self.client.get(
-            "/api/v1/market-data/search",
-            params={
-                "fields": "instrumentId,displayname,instrumentType,currentRate,isCurrentlyTradable,isDelisted",
-                "instrumentType": "Stock",
-                "pageSize": 500,
-            },
-        )
-        candidates = [
-            InstrumentCandidate(instrument_id=item["instrumentId"], name=item["displayname"], price=float(item["currentRate"]))
-            for item in raw.get("items", [])
-            if item.get("isCurrentlyTradable") and not item.get("isDelisted") and float(item["currentRate"]) <= self.max_price_usd
-        ]
+        # La ricerca eToro ordina per instrumentId crescente (i piu' vecchi/storici
+        # per primi), NON per rilevanza: sulla prima pagina la stragrande maggioranza
+        # e' isCurrentlyTradable=False. Serve paginare per trovare abbastanza titoli
+        # davvero tradabili (osservato in produzione 28/8: pagina 1 di 500 -> solo 34
+        # tradabili su totalItems=12168).
+        candidates: list[InstrumentCandidate] = []
+        for page in range(1, MAX_PAGES + 1):
+            raw = await self.client.get(
+                "/api/v1/market-data/search",
+                params={
+                    "fields": "instrumentId,displayname,instrumentType,currentRate,isCurrentlyTradable,isDelisted",
+                    "instrumentType": "Stock",
+                    "pageSize": PAGE_SIZE,
+                    "page": page,
+                },
+            )
+            items = raw.get("items", [])
+            if not items:
+                break
+            for item in items:
+                if (
+                    item.get("isCurrentlyTradable")
+                    and not item.get("isDelisted")
+                    and "currentRate" in item
+                    and float(item["currentRate"]) <= self.max_price_usd
+                ):
+                    candidates.append(
+                        InstrumentCandidate(instrument_id=item["instrumentId"], name=item["displayname"], price=float(item["currentRate"]))
+                    )
+            if len(candidates) >= TARGET_UNIVERSE_SIZE or len(items) < PAGE_SIZE:
+                break
+
+        candidates = candidates[:TARGET_UNIVERSE_SIZE]
         log.info("etoro.universe.refreshed", size=len(candidates), max_price=self.max_price_usd)
         self._save_cache(candidates)
         return candidates
