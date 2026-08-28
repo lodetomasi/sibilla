@@ -30,7 +30,7 @@ typecheck:
 	.venv/bin/mypy src
 
 api:
-	.venv/bin/uvicorn api.app:app --reload --port 8000
+	.venv/bin/uvicorn api.etoro_app:app --reload --port 8000
 
 worker:
 	$(PY) -m workers.runner
