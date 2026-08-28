@@ -85,13 +85,16 @@ class EtoroGateway:
     async def close_position(self, *, position_id: str, instrument_id: int, units: float) -> dict[str, Any]:
         demo = not self.client.settings.execution_mode.uses_real_money
         base = "/api/v1/trading/execution/demo/market-close-orders/positions" if demo else "/api/v1/trading/execution/market-close-orders/positions"
-        raw = await self.client.post(
-            f"{base}/{position_id}",
-            # "InstrumentID" (ID maiuscolo), non "InstrumentId": verificato via doc
-            # ufficiale close-demo-position-by-units 28/8, stesso pattern di casing
-            # incoerente gia' visto in rates.py.
-            json={"InstrumentID": instrument_id, "UnitsToDeduct": units},
-        )
+        # "InstrumentID" (ID maiuscolo), non "InstrumentId": verificato via doc
+        # ufficiale close-demo-position-by-units 28/8, stesso pattern di casing
+        # incoerente gia' visto in rates.py. UnitsToDeduct va OMESSO, non passato
+        # esplicitamente alla size intera: eToro a volte rifiuta con errorCode 776
+        # ("Calculated remaining live position amount in dollars: 0 < 1") quando lo
+        # si specifica per una chiusura totale - verificato in produzione 28/8, la
+        # stessa identica richiesta senza UnitsToDeduct chiude correttamente
+        # (statusID Filled). L'unico chiamante (time_stop_close_all) chiude sempre
+        # l'intera posizione, mai parzialmente.
+        raw = await self.client.post(f"{base}/{position_id}", json={"InstrumentID": instrument_id})
         await self._emit(EventType.POSITION_CLOSED, {"positionId": position_id, "result": raw}, source="etoro.gateway")
         return raw
 

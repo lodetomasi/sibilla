@@ -120,7 +120,10 @@ async def test_close_position_emits_position_closed() -> None:
     called_path = client.post.await_args.args[0]
     assert called_path == "/api/v1/trading/execution/demo/market-close-orders/positions/2150941015"
     called_json = client.post.await_args.kwargs["json"]
-    assert called_json == {"InstrumentID": 100000, "UnitsToDeduct": 100}
+    # UnitsToDeduct va OMESSO (chiusura totale implicita): specificarlo alla size
+    # intera fa a volte rifiutare l'ordine da eToro (errorCode 776, verificato in
+    # produzione 28/8).
+    assert called_json == {"InstrumentID": 100000}
     assert events[-1][0] == EventType.POSITION_CLOSED
 
 
