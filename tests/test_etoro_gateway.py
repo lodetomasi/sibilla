@@ -74,6 +74,23 @@ async def test_open_market_order_rejected_emits_order_rejected() -> None:
 
 
 @pytest.mark.asyncio
+async def test_open_market_order_sell_direction_opens_short_not_bare_sell() -> None:
+    # "sell" e "buyToCover" sono attualmente RIFIUTATI dall'API eToro per aprire
+    # ordini (verificato via doc ufficiale 28/8): Direction.SELL deve mappare a
+    # "sellShort", mai a "sell" nudo.
+    client = AsyncMock()
+    client.post_order.return_value = {"token": "tok-1", "orderId": 42, "referenceId": "ref-1"}
+    gateway = EtoroGateway(client=client, emit=AsyncMock())
+
+    await gateway.open_market_order(
+        instrument_id=100000, direction=Direction.SELL, units=50, stop_loss=5.0, take_profit=4.0, leverage=5
+    )
+
+    sent_payload = client.post_order.await_args.args[0]
+    assert sent_payload["transaction"] == "sellShort"
+
+
+@pytest.mark.asyncio
 async def test_open_market_order_requires_explicit_leverage() -> None:
     # Iron rule: la leva NON ha un default silenzioso nel gateway (design doc: "leva
     # passata esplicitamente dal chiamante") — decisa dal risk adapter (Task 9), mai

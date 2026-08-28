@@ -1,13 +1,16 @@
 # SIBILLA — Autonomous Equities Trading Desk
 
-SIBILLA is an autonomous trading desk for penny/small-cap equities on
-[eToro](https://www.etoro.com), via eToro's Public API. It scans a stock
-universe for mechanical momentum anomalies (price gap + relative volume
-spike), asks an LLM to gate the move against real, dated news before ever
-risking capital, sizes the trade with a deterministic risk engine, and
-executes as a leveraged CFD market order. A read-only live dashboard exposes
-every step: the raw per-instrument calculations, the LLM verdicts, open
-positions, and account equity.
+SIBILLA is an autonomous trading desk for eToro (via its Public API) running
+two independent strategies side by side. One scans for mechanical momentum
+anomalies and asks an LLM to gate each move against real, dated news before
+risking capital — the "did something real just happen" desk. The other is
+market-neutral mean-reversion: no news, no LLM, pure statistics — it finds
+historically correlated stock pairs, waits for their price ratio to diverge
+from its own norm, and bets on reversion with a long leg and a short leg
+opened together. Both size trades through the same deterministic risk
+engine and execute as leveraged CFD orders. A read-only live dashboard
+exposes every step: the raw per-instrument calculations, the LLM verdicts,
+open positions, and account equity.
 
 Named after the Cumaean Sibyl, who famously sold her prophecies at
 ever-increasing prices.
@@ -19,8 +22,9 @@ ever-increasing prices.
 | **Universe** | pages through eToro's stock search (results are ordered by instrument ID, not relevance, so most of a single page is delisted/non-tradable — the collector paginates until it has a real pool of tradable names) |
 | **Momentum screener** | pure arithmetic, no LLM: daily-candle gap % and volume vs. a 20-session average, per instrument |
 | **Catalyst judge (LLM)** | the anti pump-and-dump gate — given a momentum candidate and recent dated news about it, decides whether a *verifiable* catalyst (earnings, M&A, regulatory, contract) explains the move, or whether it's unexplained/speculative. It never sees or sets size, stop, or leverage |
-| **Risk engine** | deterministic: fixed % of live account equity per trade, hard stop/target distances, portfolio-level exposure and drawdown caps |
-| **Execution** | CFD market order against eToro, fixed leverage, explicit stop-loss/take-profit rates attached at open; a hard time-stop closes everything before the US close |
+| **Pairs screener** | pure arithmetic, no LLM: Pearson correlation of daily returns across the universe (O(n²), still trivial at 200 names) finds genuinely correlated pairs; among those, a z-score on the historical price-ratio spread finds the ones currently stretched away from their own norm |
+| **Risk engine** | deterministic: fixed % of live account equity per trade (half that per leg for a pair — two legs open together), hard stop/target distances, portfolio-level exposure and drawdown caps |
+| **Execution** | CFD market order against eToro, fixed leverage, explicit stop-loss/take-profit rates attached at open (`sellShort`/`buyToCover` for the short side of a pair — not a bare `sell`, which eToro's API currently rejects); a hard time-stop closes everything before the US close, pairs included (so today this is an intraday mean-reversion bet, not a multi-day hold — a known, deliberate simplification) |
 
 News for the catalyst judge comes from an RSS pipeline (macro/market wires
 plus a company press-release wire) polled independently of the trading loop,
@@ -33,7 +37,8 @@ trade when no matching news exists yet.
 src/
   collectors/etoro/   paginated stock universe, live rates, daily candles
   collectors/news/    RSS ingestion (macro wires + company press releases), dedup
-  strategies/         momentum screener (gap % + relative volume, pure functions)
+  strategies/         momentum screener (gap % + relative volume) and pairs
+                      screener (correlation + spread z-score), pure functions
   intelligence/       the catalyst judge (single LLM call, schema-constrained)
   execution/etoro/    thin HTTP client + gateway (open/close orders, positions, balance)
   risk/               deterministic sizing/limits engine + eToro-specific adapter
@@ -69,7 +74,7 @@ the real API — not from documentation alone):
 make install                       # Python 3.12 venv + deps
 cp env.example .env                # fill in your keys (never committed)
 make initdb
-make test                          # 126 tests, mocked broker/LLM/DB
+make test                          # 146 tests, mocked broker/LLM/DB
 
 PYTHONPATH=src .venv/bin/python -m workers.etoro_runner     # trading loop
 PYTHONPATH=src .venv/bin/uvicorn api.etoro_app:app --port 8000   # dashboard

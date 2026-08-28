@@ -29,6 +29,9 @@ _FEED_LABELS = {
     "etoro.runner.position_cap_reached": "CAP posizioni raggiunto",
     "etoro.runner.cycle_failed": "ERRORE CICLO",
     "etoro.universe.refreshed": "UNIVERSO aggiornato",
+    "etoro.pairs.evaluated": "PAIR: segnale rilevato",
+    "etoro.runner.pair_risk_rejected": "PAIR RIFIUTATA (risk engine)",
+    "etoro.runner.pairs_skipped_position_cap": "PAIR: cap posizioni raggiunto",
 }
 
 _LINE_RE = re.compile(r"^(\S+?)Z?\s+\[(\w+)\s*\]\s+(\S+)\s*(.*)$")

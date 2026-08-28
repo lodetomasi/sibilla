@@ -37,9 +37,13 @@ class EtoroGateway:
         take_profit: float,
         leverage: int,
     ) -> OrderResult:
+        # "sellShort" per aprire uno short, non "sell": verificato via doc ufficiale
+        # create-an-order 28/8 - "sell"/"buyToCover" sono attualmente RIFIUTATI
+        # dall'API eToro (riservati alla chiusura, non ancora abilitata su questo
+        # endpoint - la chiusura reale passa da close_position/market-close-orders).
         payload = {
             "action": "open",
-            "transaction": "buy" if direction is Direction.BUY else "sell",
+            "transaction": "buy" if direction is Direction.BUY else "sellShort",
             "instrumentId": instrument_id,
             "orderType": "mkt",
             # esplicito, non lasciato al default non documentato dell'API: tutto il

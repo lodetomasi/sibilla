@@ -32,6 +32,11 @@ MARKET_CLOSE = dtime(16, 0)
 TIME_STOP = dtime(15, 40)
 SCAN_INTERVAL_S = 300
 MAX_JUDGED_PER_CYCLE = 10
+MAX_PAIRS_TRIED_PER_CYCLE = 5
+# 65 giornate: copre sia il lookback momentum (20) sia quello pairs (60,
+# strategies/etoro_pairs.py) con lo stesso fetch condiviso - il costo API e'
+# identico a prescindere da count (un'unica chiamata per strumento).
+CANDLE_HISTORY_DAYS = 65
 MAX_OPEN_POSITIONS = 3  # RiskLimits.max_open_positions (default 10) non e' overridabile
 # da env flat in questo repo: il cap di design (max 3) e' applicato qui, non nel RiskEngine.
 
@@ -90,7 +95,7 @@ class EtoroRunner:
 
         pairs = []
         for c in candidates:
-            history = await self.candles.daily_candles(instrument_id=c.instrument_id, count=21)
+            history = await self.candles.daily_candles(instrument_id=c.instrument_id, count=CANDLE_HISTORY_DAYS)
             pairs.append((c, history))
         evaluations = evaluate_momentum(pairs)
         for e in evaluations:
@@ -105,7 +110,8 @@ class EtoroRunner:
         ][:MAX_JUDGED_PER_CYCLE]
         if not momentum:
             log.info("etoro.runner.no_momentum_candidates", scanned=len(candidates), evaluated=len(evaluations))
-            return
+            # niente return qui: i pairs sono una strategia indipendente (nessun
+            # candidato momentum non deve bloccare la valutazione delle coppie).
 
         quotes = await self.rates.quotes_for([m.instrument_id for m in momentum])
         quote_by_id = {instrument_id_from_epic(q.epic): q for q in quotes}
@@ -158,6 +164,71 @@ class EtoroRunner:
                 stop_loss=round(quote.offer * (1 - 0.07), 2), take_profit=round(quote.offer * (1 + 0.14), 2),
                 leverage=LEVERAGE,
             )
+
+        await self._run_pairs_phase(pairs=pairs, positions=positions, account=account, context=context)
+
+    async def _run_pairs_phase(self, *, pairs, positions, account, context) -> None:
+        """Mean-reversion market-neutral, indipendente dalla strategia momentum:
+        nessuna notizia, nessun LLM - solo correlazione storica + z-score dello
+        spread. Una coppia = due gambe (long+short) aperte insieme o per niente
+        (all-or-nothing): il motore di rischio condiviso valuta ogni gamba come
+        un trade a se', ciascuna con meta' del budget di rischio standard.
+        """
+        from strategies.etoro_pairs import find_pair_signals
+        from risk.etoro_pairs_adapter import (
+            LEVERAGE as PAIRS_LEVERAGE,
+            RISK_FRACTION_PER_LEG,
+            build_leg_proposal,
+            leg_entry_price,
+            leg_stop_and_target,
+            size_from_decision as pair_size_from_decision,
+        )
+
+        if len(positions) + 2 > MAX_OPEN_POSITIONS:
+            log.info("etoro.runner.pairs_skipped_position_cap", open=len(positions))
+            return
+
+        pair_signals = find_pair_signals(pairs)
+        for sig in pair_signals:
+            log.info(
+                "etoro.pairs.evaluated", instrument_a_id=sig.instrument_a_id, instrument_a_name=sig.instrument_a_name,
+                instrument_b_id=sig.instrument_b_id, instrument_b_name=sig.instrument_b_name,
+                correlation=round(sig.correlation, 3), z_score=round(sig.z_score, 2),
+            )
+
+        for sig in pair_signals[:MAX_PAIRS_TRIED_PER_CYCLE]:
+            leg_quotes = await self.rates.quotes_for([sig.instrument_a_id, sig.instrument_b_id])
+            leg_quote_by_id = {instrument_id_from_epic(q.epic): q for q in leg_quotes}
+            quote_a = leg_quote_by_id.get(sig.instrument_a_id)
+            quote_b = leg_quote_by_id.get(sig.instrument_b_id)
+            if quote_a is None or quote_b is None:
+                continue
+
+            pair_label = f"pair-{sig.instrument_a_id}-{sig.instrument_b_id}"
+            risk_per_leg = account.equity * RISK_FRACTION_PER_LEG
+            proposal_a = build_leg_proposal(instrument_id=sig.instrument_a_id, name=sig.instrument_a_name, direction=sig.direction_a, quote=quote_a, pair_label=pair_label, requested_risk_eur=risk_per_leg)
+            proposal_b = build_leg_proposal(instrument_id=sig.instrument_b_id, name=sig.instrument_b_name, direction=sig.direction_b, quote=quote_b, pair_label=pair_label, requested_risk_eur=risk_per_leg)
+            decision_a = self.risk_engine.evaluate(proposal_a, context, fx_rate_to_eur=1.0)
+            decision_b = self.risk_engine.evaluate(proposal_b, context, fx_rate_to_eur=1.0)
+            if not (decision_a.approved and decision_b.approved):
+                log.info(
+                    "etoro.runner.pair_risk_rejected", pair=pair_label,
+                    reasons_a=decision_a.rejection_reasons, reasons_b=decision_b.rejection_reasons,
+                )
+                continue
+
+            units_a, units_b = pair_size_from_decision(decision_a), pair_size_from_decision(decision_b)
+            if units_a <= 0 or units_b <= 0:
+                continue
+
+            entry_a, entry_b = leg_entry_price(sig.direction_a, quote_a), leg_entry_price(sig.direction_b, quote_b)
+            stop_a, target_a = leg_stop_and_target(sig.direction_a, entry_a)
+            stop_b, target_b = leg_stop_and_target(sig.direction_b, entry_b)
+            await self.gateway.open_market_order(instrument_id=sig.instrument_a_id, direction=sig.direction_a, units=units_a, stop_loss=stop_a, take_profit=target_a, leverage=PAIRS_LEVERAGE)
+            await self.gateway.open_market_order(instrument_id=sig.instrument_b_id, direction=sig.direction_b, units=units_b, stop_loss=stop_b, take_profit=target_b, leverage=PAIRS_LEVERAGE)
+            # una sola coppia aperta per ciclo: la capacita' posizioni (MAX_OPEN_POSITIONS)
+            # e' condivisa con la strategia momentum, non si accumula piu' di una coppia alla volta.
+            break
 
     async def time_stop_close_all(self) -> None:
         positions = await self.gateway.positions()

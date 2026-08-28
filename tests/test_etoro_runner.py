@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import datetime
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
@@ -25,6 +26,32 @@ def _flat_history_with_spike() -> list[DailyCandle]:
         out.append(DailyCandle(date=datetime(2026, 8, i + 1, tzinfo=timezone.utc), open=3.0, high=3.0, low=3.0, close=3.0, volume=100_000))
     out.append(DailyCandle(date=datetime(2026, 8, 21, tzinfo=timezone.utc), open=3.0, high=3.6, low=2.95, close=3.55, volume=900_000))
     return out
+
+
+def _candles_from_closes(closes: list[float]) -> list[DailyCandle]:
+    from datetime import timedelta, timezone
+    base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    return [
+        DailyCandle(date=base + timedelta(days=i), open=c, high=c, low=c, close=c, volume=100_000)
+        for i, c in enumerate(closes)
+    ]
+
+
+def _correlated_diverged_histories() -> tuple[list[DailyCandle], list[DailyCandle]]:
+    # Stesso pattern di tests/test_etoro_pairs.py: trend condiviso + rumore
+    # indipendente piccolo (correlazione alta ma non 1.0, varianza storica
+    # reale sul rapporto), poi l'ultima seduta diverge per generare un segnale.
+    rng = random.Random(7)
+    a, b = [], []
+    price_a, price_b = 100.0, 50.0
+    for i in range(61):
+        step = 1.0 if i % 2 == 0 else -1.0
+        price_a += step + rng.uniform(-0.15, 0.15)
+        price_b += step * 0.5 + rng.uniform(-0.08, 0.08)
+        a.append(price_a)
+        b.append(price_b)
+    a[-1] = a[-1] * 1.15
+    return _candles_from_closes(a), _candles_from_closes(b)
 
 
 @pytest.mark.parametrize(
@@ -179,3 +206,108 @@ async def test_time_stop_closes_all_open_positions() -> None:
     assert first_call["position_id"] == "pos-1"
     assert first_call["instrument_id"] == 1
     assert first_call["units"] == 100
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_opens_both_legs_of_approved_pair_trade() -> None:
+    inst_a = InstrumentCandidate(instrument_id=1, name="CorrA", price=100.0)
+    inst_b = InstrumentCandidate(instrument_id=2, name="CorrB", price=50.0)
+    hist_a, hist_b = _correlated_diverged_histories()
+
+    universe = AsyncMock()
+    universe.refresh.return_value = [inst_a, inst_b]
+    candles = AsyncMock()
+    candles.daily_candles.side_effect = lambda *, instrument_id, count: hist_a if instrument_id == 1 else hist_b
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [
+        Quote(epic="ETORO:1", bid=hist_a[-1].close - 0.05, offer=hist_a[-1].close, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+        Quote(epic="ETORO:2", bid=hist_b[-1].close - 0.05, offer=hist_b[-1].close, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+    ]
+    gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
+    gateway.positions.return_value = []
+
+    fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=False, rationale="no catalyst"))
+    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600))
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""), risk_engine=risk_engine)
+
+    await runner.run_cycle()
+
+    assert gateway.open_market_order.await_count == 2
+    calls = gateway.open_market_order.await_args_list
+    instrument_ids = {c.kwargs["instrument_id"] for c in calls}
+    assert instrument_ids == {1, 2}
+    directions = {c.kwargs["instrument_id"]: c.kwargs["direction"] for c in calls}
+    # Le due gambe hanno sempre direzione opposta (market-neutral).
+    assert directions[1] != directions[2]
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_evaluates_pairs_even_when_no_momentum_candidates() -> None:
+    # Bug corretto: un return anticipato quando momentum e' vuoto impediva del
+    # tutto la valutazione dei pairs, strategia indipendente che non deve
+    # dipendere da un salto di prezzo momentum.
+    inst_a = InstrumentCandidate(instrument_id=1, name="CorrA", price=100.0)
+    inst_b = InstrumentCandidate(instrument_id=2, name="CorrB", price=50.0)
+    hist_a, hist_b = _correlated_diverged_histories()
+    # A si muove solo +2.5% (sotto la soglia gap momentum del 3%), B resta
+    # fermo sull'ultima seduta: il gap giornaliero di A da solo non basta per
+    # momentum, ma il RAPPORTO storico A/B diverge abbastanza per un segnale pairs.
+    last_a = hist_a[-2].close * 1.025
+    hist_a_below_momentum = hist_a[:-1] + [DailyCandle(date=hist_a[-1].date, open=last_a, high=last_a, low=last_a, close=last_a, volume=100_000)]
+    hist_b_flat_last_day = hist_b[:-1] + [DailyCandle(date=hist_b[-1].date, open=hist_b[-2].close, high=hist_b[-2].close, low=hist_b[-2].close, close=hist_b[-2].close, volume=100_000)]
+
+    universe = AsyncMock()
+    universe.refresh.return_value = [inst_a, inst_b]
+    candles = AsyncMock()
+    candles.daily_candles.side_effect = lambda *, instrument_id, count: hist_a_below_momentum if instrument_id == 1 else hist_b_flat_last_day
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [
+        Quote(epic="ETORO:1", bid=last_a - 0.05, offer=last_a, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+        Quote(epic="ETORO:2", bid=hist_b_flat_last_day[-1].close - 0.05, offer=hist_b_flat_last_day[-1].close, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+    ]
+    gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
+    gateway.positions.return_value = []
+
+    fake_judge = AsyncMock()  # non deve MAI essere chiamato: gap 2.5% < soglia momentum 3%
+    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600))
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""), risk_engine=risk_engine)
+
+    await runner.run_cycle()
+
+    fake_judge.assert_not_awaited()  # conferma: zero candidati momentum in questo ciclo
+    assert gateway.open_market_order.await_count == 2  # ma i pairs hanno comunque aperto una coppia
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_skips_pairs_when_not_enough_free_position_slots() -> None:
+    inst_a = InstrumentCandidate(instrument_id=1, name="CorrA", price=100.0)
+    inst_b = InstrumentCandidate(instrument_id=2, name="CorrB", price=50.0)
+    hist_a, hist_b = _correlated_diverged_histories()
+
+    universe = AsyncMock()
+    universe.refresh.return_value = [inst_a, inst_b]
+    candles = AsyncMock()
+    candles.daily_candles.side_effect = lambda *, instrument_id, count: hist_a if instrument_id == 1 else hist_b
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [
+        Quote(epic="ETORO:1", bid=hist_a[-1].close - 0.05, offer=hist_a[-1].close, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+        Quote(epic="ETORO:2", bid=hist_b[-1].close - 0.05, offer=hist_b[-1].close, source="etoro-rest", market_status=MarketStatus.TRADEABLE),
+    ]
+    gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
+    # MAX_OPEN_POSITIONS=3: con 2 gia' aperte resta 1 solo slot, non bastano le 2
+    # gambe di una coppia.
+    gateway.positions.return_value = [
+        BrokerPosition(deal_id="pos-1", epic="ETORO:9", direction=Direction.BUY, size=10, level=5.0, currency="USD"),
+        BrokerPosition(deal_id="pos-2", epic="ETORO:10", direction=Direction.BUY, size=10, level=5.0, currency="USD"),
+    ]
+
+    fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=False, rationale="no catalyst"))
+    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600))
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""), risk_engine=risk_engine)
+
+    await runner.run_cycle()
+
+    gateway.open_market_order.assert_not_awaited()
