@@ -103,10 +103,13 @@ class EtoroGateway:
         raw = await self.client.get(self._pnl_path())
         out: list[BrokerPosition] = []
         for p in raw.get("clientPortfolio", {}).get("positions", []):
+            # "positionID"/"instrumentID" (ID maiuscolo): verificato sulla prima
+            # posizione reale mai aperta (28/8) - stesso pattern di casing
+            # incoerente gia' visto in rates.py e close_position.
             out.append(
                 BrokerPosition(
-                    deal_id=str(p["positionId"]),
-                    epic=etoro_epic(int(p["instrumentId"])),
+                    deal_id=str(p["positionID"]),
+                    epic=etoro_epic(int(p["instrumentID"])),
                     direction=Direction.BUY if p.get("isBuy", True) else Direction.SELL,
                     size=float(p["units"]),
                     level=float(p["openRate"]),

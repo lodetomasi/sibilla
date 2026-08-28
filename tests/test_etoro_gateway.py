@@ -132,8 +132,8 @@ async def test_positions_maps_to_broker_position_list() -> None:
         "clientPortfolio": {
             "positions": [
                 {
-                    "positionId": "pos-1",
-                    "instrumentId": 100000,
+                    "positionID": "pos-1",
+                    "instrumentID": 100000,
                     "isBuy": True,
                     "units": 100,
                     "openRate": 4.30,
