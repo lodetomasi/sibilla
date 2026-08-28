@@ -59,6 +59,11 @@ DEFAULT_FEEDS: tuple[FeedSource, ...] = (
     FeedSource("Calculated Risk", "https://www.calculatedriskblog.com/feeds/posts/default", SourceTier.TIER_4, "specialist", (Category.ECONOMICS,), "calculatedriskblog.com"),
     # TIER 5 - social (secondario)
     FeedSource("Reddit r/economics", "https://www.reddit.com/r/Economics/new/.rss", SourceTier.TIER_5, "social", (Category.ECONOMICS,), "reddit.com"),
+    # Comunicati stampa aziendali diretti (non giornalismo indipendente, per questo
+    # TIER_4): tutte le altre fonti sopra sono macro/mega-cap, il judge anti
+    # pump&dump del motore eToro (gap+volume su small/mid-cap) restava quasi sempre
+    # senza notizie da verificare - verificato feed reale 28/8 (FDA, M&A, leadership).
+    FeedSource("PR Newswire Public Companies", "https://www.prnewswire.com/rss/all-public-company-news-list.rss", SourceTier.TIER_4, "press_release", (Category.COMPANIES,), "prnewswire.com"),
 )
 
 OFFICIAL_DOMAINS: dict[str, SourceTier] = {
