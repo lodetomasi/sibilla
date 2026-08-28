@@ -61,7 +61,8 @@ async def test_run_cycle_opens_order_on_approved_catalyst_trade() -> None:
     # questo motore tiene fino al time-stop EOD (~6h30, Task 11 alza il limite via
     # ATS_MAX_HOLDING_TIME_S in produzione) - qui si riflette la stessa config.
     risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600))
-    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, risk_engine=risk_engine)
+    fake_news_lookup = AsyncMock(return_value="")
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=fake_news_lookup, risk_engine=risk_engine)
 
     await runner.run_cycle()
 
@@ -88,7 +89,7 @@ async def test_run_cycle_skips_order_without_catalyst() -> None:
     async def fake_judge(candidate, *, news_brief, llm):
         return CatalystVerdict(has_catalyst=False, rationale="no verifiable cause")
 
-    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge)
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""))
 
     await runner.run_cycle()
 

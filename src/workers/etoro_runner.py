@@ -17,6 +17,7 @@ from core.clock import utcnow
 from core.config import get_settings
 from core.enums import Direction
 from core.logging import configure_logging, get_logger
+from collectors.etoro.news_lookup import recent_news_brief
 from execution.etoro.client import EtoroClient
 from execution.etoro.gateway import EtoroGateway, instrument_id_from_epic
 from intelligence.etoro_judge import CatalystVerdict, judge_catalyst
@@ -37,6 +38,7 @@ MAX_OPEN_POSITIONS = 3  # RiskLimits.max_open_positions (default 10) non e' over
 log = get_logger("workers.etoro_runner")
 
 JudgeFn = Callable[..., Awaitable[CatalystVerdict]]
+NewsLookupFn = Callable[..., Awaitable[str]]
 
 
 class EtoroRunner:
@@ -49,6 +51,7 @@ class EtoroRunner:
         gateway: Any,
         llm: Any,
         judge_fn: JudgeFn = judge_catalyst,
+        news_lookup_fn: NewsLookupFn = recent_news_brief,
         risk_engine: RiskEngine | None = None,
     ):
         self.universe = universe
@@ -57,6 +60,7 @@ class EtoroRunner:
         self.gateway = gateway
         self.llm = llm
         self.judge_fn = judge_fn
+        self.news_lookup_fn = news_lookup_fn
         self.risk_engine = risk_engine or RiskEngine()
 
     def is_market_open(self, now: datetime) -> bool:
@@ -112,7 +116,8 @@ class EtoroRunner:
             quote = quote_by_id.get(m.instrument_id)
             if quote is None:
                 continue
-            verdict = await self.judge_fn(m, news_brief="", llm=self.llm)
+            news_brief = await self.news_lookup_fn(m.name)
+            verdict = await self.judge_fn(m, news_brief=news_brief, llm=self.llm)
             if not verdict.has_catalyst:
                 log.info("etoro.runner.no_catalyst", instrument_id=m.instrument_id)
                 continue
@@ -145,8 +150,10 @@ async def main() -> None:
     client = EtoroClient(settings=settings)
     gateway = EtoroGateway(client=client, emit=emit)
 
+    from collectors.base import CollectionMode
     from collectors.etoro.instruments import InstrumentUniverse
     from collectors.etoro.rates import CandleHistory, RatesCollector
+    from collectors.news.rss import RSSNewsCollector
     from core.config import DATA_DIR
     from intelligence.llm import get_llm_client
 
@@ -160,6 +167,25 @@ async def main() -> None:
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
+
+    news_collector = RSSNewsCollector()
+
+    async def _news_loop() -> None:
+        # Popola il DB news usato da recent_news_brief (il judge anti pump&dump ha
+        # bisogno di notizie reali, non di un contesto sempre vuoto). Cadenza
+        # indipendente dal ciclo di scan/trade: le notizie contano anche fuori
+        # dall'orario di mercato per il ciclo successivo all'apertura.
+        while not stop.is_set():
+            try:
+                await news_collector.collect(mode=CollectionMode.INCREMENTAL)
+            except Exception:  # noqa: BLE001
+                log.exception("etoro.runner.news_collect_failed")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=900)
+            except TimeoutError:
+                pass
+
+    news_task = asyncio.create_task(_news_loop())
 
     log.info("etoro.runner.started")
     already_time_stopped_today: str | None = None
@@ -178,6 +204,8 @@ async def main() -> None:
             await asyncio.wait_for(stop.wait(), timeout=SCAN_INTERVAL_S)
         except TimeoutError:
             pass
+    news_task.cancel()
+    await news_collector.aclose()
     await client.aclose()
     log.info("etoro.runner.stopped")
 
