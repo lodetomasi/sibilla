@@ -175,19 +175,31 @@ async def test_run_cycle_skips_order_without_catalyst() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_skips_when_position_cap_reached() -> None:
+async def test_run_cycle_lets_risk_engine_reject_once_at_max_open_positions() -> None:
+    # Nessun cap a livello di runner (richiesta utente 28/8, "non dobbiamo avere
+    # un tetto"): il vero argine e' RiskLimits.max_open_positions nel risk engine
+    # condiviso, che qui e' impostato a 1 apposta per verificare il rifiuto senza
+    # dover costruire 10 posizioni finte.
     universe = AsyncMock()
+    universe.refresh.return_value = [InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)]
+    candles = AsyncMock()
+    candles.daily_candles.return_value = _flat_history_with_spike()
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [Quote(epic="ETORO:1", bid=3.53, offer=3.55, source="etoro-rest", market_status=MarketStatus.TRADEABLE)]
     gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
     gateway.positions.return_value = [
-        BrokerPosition(deal_id=f"pos-{i}", epic=f"ETORO:{i}", direction=Direction.BUY, size=10, level=1.0, currency="USD")
-        for i in range(3)
+        BrokerPosition(deal_id="pos-1", epic="ETORO:9", direction=Direction.BUY, size=10, level=1.0, currency="USD")
     ]
-    runner = EtoroRunner(universe=universe, rates=AsyncMock(), candles=AsyncMock(), gateway=gateway, llm=AsyncMock())
+
+    fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=True, direction="BUY", confidence=0.7, rationale="FDA news"))
+    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600, max_open_positions=1))
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""), risk_engine=risk_engine)
 
     await runner.run_cycle()
 
-    universe.refresh.assert_not_awaited()
-    gateway.open_market_order.assert_not_awaited()
+    universe.refresh.assert_awaited_once()  # nessun return anticipato: il ciclo scansiona comunque
+    gateway.open_market_order.assert_not_awaited()  # ma il risk engine rifiuta (1 posizione gia' aperta = al limite)
 
 
 @pytest.mark.asyncio
@@ -281,7 +293,10 @@ async def test_run_cycle_evaluates_pairs_even_when_no_momentum_candidates() -> N
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_skips_pairs_when_not_enough_free_position_slots() -> None:
+async def test_run_cycle_lets_risk_engine_reject_pair_legs_at_max_open_positions() -> None:
+    # Nessun cap pairs-specifico a livello di runner (richiesta utente 28/8): il
+    # rifiuto arriva dal risk engine condiviso (max_open_positions), non da un
+    # controllo dedicato qui.
     inst_a = InstrumentCandidate(instrument_id=1, name="CorrA", price=100.0)
     inst_b = InstrumentCandidate(instrument_id=2, name="CorrB", price=50.0)
     hist_a, hist_b = _correlated_diverged_histories()
@@ -297,15 +312,13 @@ async def test_run_cycle_skips_pairs_when_not_enough_free_position_slots() -> No
     ]
     gateway = AsyncMock()
     gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
-    # MAX_OPEN_POSITIONS=3: con 2 gia' aperte resta 1 solo slot, non bastano le 2
-    # gambe di una coppia.
     gateway.positions.return_value = [
         BrokerPosition(deal_id="pos-1", epic="ETORO:9", direction=Direction.BUY, size=10, level=5.0, currency="USD"),
         BrokerPosition(deal_id="pos-2", epic="ETORO:10", direction=Direction.BUY, size=10, level=5.0, currency="USD"),
     ]
 
     fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=False, rationale="no catalyst"))
-    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600))
+    risk_engine = RiskEngine(limits=RiskLimits(max_holding_time_s=8 * 3600, max_open_positions=2))
     runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""), risk_engine=risk_engine)
 
     await runner.run_cycle()

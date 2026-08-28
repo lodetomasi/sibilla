@@ -191,10 +191,10 @@ async function refresh() {
       document.getElementById("g-available-tick").style.transform = "scaleX(" + availRatio + ")";
     }
     const posEl = document.getElementById("g-positions");
-    posEl.textContent = positions.length + " / 3";
-    posEl.className = "value" + (positions.length >= 3 ? " amber" : "");
-    document.getElementById("g-positions-tick").style.transform = "scaleX(" + Math.min(1, positions.length/3) + ")";
-    document.getElementById("g-positions-tick").className = positions.length >= 3 ? "amber" : "";
+    posEl.textContent = positions.length + " / 10";
+    posEl.className = "value" + (positions.length >= 10 ? " amber" : "");
+    document.getElementById("g-positions-tick").style.transform = "scaleX(" + Math.min(1, positions.length/10) + ")";
+    document.getElementById("g-positions-tick").className = positions.length >= 10 ? "amber" : "";
 
     document.getElementById("g-mode").textContent = status.mode || "—";
     document.getElementById("g-mode-sub").textContent = status.etoro_configured ? "connesso" : "chiave assente";

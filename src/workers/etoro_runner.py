@@ -37,8 +37,12 @@ MAX_PAIRS_TRIED_PER_CYCLE = 5
 # strategies/etoro_pairs.py) con lo stesso fetch condiviso - il costo API e'
 # identico a prescindere da count (un'unica chiamata per strumento).
 CANDLE_HISTORY_DAYS = 65
-MAX_OPEN_POSITIONS = 3  # RiskLimits.max_open_positions (default 10) non e' overridabile
-# da env flat in questo repo: il cap di design (max 3) e' applicato qui, non nel RiskEngine.
+
+# Nessun cap sul numero di posizioni a livello di runner (richiesta utente 28/8,
+# "non dobbiamo avere un tetto"): il vero argine resta il risk engine condiviso,
+# che gia' applica RiskLimits.max_open_positions (default 10) oltre a rischio/
+# trade, rischio aperto totale, margine ed esposizione correlata - un secondo
+# cap qui sopra sarebbe stato solo un doppione piu' stretto.
 
 log = get_logger("workers.etoro_runner")
 
@@ -86,17 +90,14 @@ class EtoroRunner:
             return
 
         positions = await self.gateway.positions()
-        if len(positions) >= MAX_OPEN_POSITIONS:
-            log.info("etoro.runner.position_cap_reached", open=len(positions))
-            return
 
         candidates = await self.universe.refresh()
         from strategies.etoro_momentum import MomentumCandidate, evaluate_momentum
 
-        pairs = []
-        for c in candidates:
-            history = await self.candles.daily_candles(instrument_id=c.instrument_id, count=CANDLE_HISTORY_DAYS)
-            pairs.append((c, history))
+        histories = await asyncio.gather(
+            *[self.candles.daily_candles(instrument_id=c.instrument_id, count=CANDLE_HISTORY_DAYS) for c in candidates]
+        )
+        pairs = list(zip(candidates, histories))
         evaluations = evaluate_momentum(pairs)
         for e in evaluations:
             log.info(
@@ -184,10 +185,6 @@ class EtoroRunner:
             size_from_decision as pair_size_from_decision,
         )
 
-        if len(positions) + 2 > MAX_OPEN_POSITIONS:
-            log.info("etoro.runner.pairs_skipped_position_cap", open=len(positions))
-            return
-
         pair_signals = find_pair_signals(pairs)
         for sig in pair_signals:
             log.info(
@@ -226,8 +223,8 @@ class EtoroRunner:
             stop_b, target_b = leg_stop_and_target(sig.direction_b, entry_b)
             await self.gateway.open_market_order(instrument_id=sig.instrument_a_id, direction=sig.direction_a, units=units_a, stop_loss=stop_a, take_profit=target_a, leverage=PAIRS_LEVERAGE)
             await self.gateway.open_market_order(instrument_id=sig.instrument_b_id, direction=sig.direction_b, units=units_b, stop_loss=stop_b, take_profit=target_b, leverage=PAIRS_LEVERAGE)
-            # una sola coppia aperta per ciclo: la capacita' posizioni (MAX_OPEN_POSITIONS)
-            # e' condivisa con la strategia momentum, non si accumula piu' di una coppia alla volta.
+            # una sola coppia aperta per ciclo: il risk engine (max_open_positions
+            # condiviso con la strategia momentum) resta l'unico vero argine.
             break
 
     async def time_stop_close_all(self) -> None:
