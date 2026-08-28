@@ -42,25 +42,39 @@ class EtoroGateway:
             "transaction": "buy" if direction is Direction.BUY else "sell",
             "instrumentId": instrument_id,
             "orderType": "mkt",
+            # esplicito, non lasciato al default non documentato dell'API: tutto il
+            # risk model (margin_factor, leva) in risk/etoro_adapter.py assuma CFD,
+            # non acquisto azioni reali senza leva.
+            "settlementType": "cfd",
             "leverage": leverage,
             "units": units,
-            "stopLoss": stop_loss,
-            "takeProfit": take_profit,
+            # "Rate", non "Loss"/"Profit" nudi: verificato via doc ufficiale eToro
+            # (create-an-order) 28/8 - i nomi vecchi venivano ignorati in silenzio
+            # dall'API, aprendo posizioni SENZA stop/target.
+            "stopLossRate": stop_loss,
+            "takeProfitRate": take_profit,
         }
         await self._emit(EventType.ORDER_SUBMITTED, {"epic": etoro_epic(instrument_id), "payload": payload}, source="etoro.gateway")
         raw = await self.client.post_order(payload)
-        status = raw.get("status", "UNKNOWN")
+        # La risposta sincrona di create-an-order (verificato via doc ufficiale) e'
+        # SOLO {token, orderId, referenceId}: nessun campo status/positionId/
+        # executionPrice/reason. "CONFIRMED" qui significa "il broker ha accettato
+        # la richiesta", NON "eseguita" - il fill vero si scopre al prossimo poll
+        # di positions() (stesso pattern del vecchio codice era una finzione: quei
+        # campi non sono mai esistiti nella risposta reale).
+        order_id = raw.get("orderId")
+        accepted = order_id is not None
         result = OrderResult(
-            client_order_id=str(raw.get("orderId", "")),
-            deal_id=raw.get("positionId"),
-            status=status,
-            filled_size=float(raw.get("units", 0.0)) if status == "EXECUTED" else 0.0,
-            fill_price=raw.get("executionPrice"),
+            client_order_id=str(order_id) if accepted else "",
+            deal_id=None,
+            status="CONFIRMED" if accepted else "REJECTED",
+            filled_size=0.0,
+            fill_price=None,
             requested_size=units,
-            error=raw.get("reason"),
+            error=None if accepted else str(raw)[:200],
             raw=raw,
         )
-        event_type = EventType.ORDER_CONFIRMED if status == "EXECUTED" else EventType.ORDER_REJECTED
+        event_type = EventType.ORDER_CONFIRMED if accepted else EventType.ORDER_REJECTED
         await self._emit(event_type, {"epic": etoro_epic(instrument_id), "result": raw}, source="etoro.gateway")
         return result
 
@@ -69,7 +83,10 @@ class EtoroGateway:
         base = "/api/v1/trading/execution/demo/market-close-orders/positions" if demo else "/api/v1/trading/execution/market-close-orders/positions"
         raw = await self.client.post(
             f"{base}/{position_id}",
-            json={"InstrumentId": instrument_id, "UnitsToDeduct": units},
+            # "InstrumentID" (ID maiuscolo), non "InstrumentId": verificato via doc
+            # ufficiale close-demo-position-by-units 28/8, stesso pattern di casing
+            # incoerente gia' visto in rates.py.
+            json={"InstrumentID": instrument_id, "UnitsToDeduct": units},
         )
         await self._emit(EventType.POSITION_CLOSED, {"positionId": position_id, "result": raw}, source="etoro.gateway")
         return raw

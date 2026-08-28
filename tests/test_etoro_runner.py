@@ -75,6 +75,30 @@ async def test_run_cycle_opens_order_on_approved_catalyst_trade() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_cycle_does_not_rejudge_same_instrument_within_cooldown() -> None:
+    # Le candele giornaliere non cambiano infra-day: senza cooldown lo stesso
+    # titolo verrebbe ri-giudicato dall'LLM ad ogni ciclo per ore (visto in
+    # produzione 28/8, Ackermans & Van Haaren giudicato 9+ volte in ~90 min).
+    universe = AsyncMock()
+    universe.refresh.return_value = [InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)]
+    candles = AsyncMock()
+    candles.daily_candles.return_value = _flat_history_with_spike()
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [Quote(epic="ETORO:1", bid=3.53, offer=3.55, source="etoro-rest", market_status=MarketStatus.TRADEABLE)]
+    gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
+    gateway.positions.return_value = []
+
+    fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=False, rationale="no catalyst"))
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=AsyncMock(return_value=""))
+
+    await runner.run_cycle()
+    await runner.run_cycle()
+
+    fake_judge.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_run_cycle_skips_order_without_catalyst() -> None:
     universe = AsyncMock()
     universe.refresh.return_value = [InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)]

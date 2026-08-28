@@ -15,14 +15,11 @@ def test_epic_roundtrip() -> None:
 
 @pytest.mark.asyncio
 async def test_open_market_order_maps_response_to_order_result() -> None:
+    # Risposta reale di POST create-an-order (verificata via doc ufficiale 28/8):
+    # SOLO {token, orderId, referenceId} - nessun status/positionId/executionPrice
+    # sincrono, il fill si scopre al prossimo poll di positions().
     client = AsyncMock()
-    client.post_order.return_value = {
-        "orderId": "abc-123",
-        "positionId": "pos-1",
-        "status": "EXECUTED",
-        "executionPrice": 4.52,
-        "units": 100,
-    }
+    client.post_order.return_value = {"token": "tok-1", "orderId": 999, "referenceId": "ref-1"}
     events: list[tuple[EventType, dict]] = []
 
     async def fake_emit(event_type, payload, *, source="system"):
@@ -38,28 +35,29 @@ async def test_open_market_order_maps_response_to_order_result() -> None:
         leverage=5,
     )
 
-    assert result.status == "EXECUTED"
-    assert result.deal_id == "pos-1"
-    assert result.fill_price == 4.52
-    assert result.filled_size == 100
+    assert result.status == "CONFIRMED"
+    assert result.client_order_id == "999"
+    assert result.deal_id is None
     client.post_order.assert_awaited_once()
     sent_payload = client.post_order.await_args.args[0]
     assert sent_payload["action"] == "open"
     assert sent_payload["transaction"] == "buy"
     assert sent_payload["instrumentId"] == 100000
     assert sent_payload["orderType"] == "mkt"
+    assert sent_payload["settlementType"] == "cfd"
     assert sent_payload["leverage"] == 5
     assert sent_payload["units"] == 100
-    assert sent_payload["stopLoss"] == 4.20
-    assert sent_payload["takeProfit"] == 5.15
+    assert sent_payload["stopLossRate"] == 4.20
+    assert sent_payload["takeProfitRate"] == 5.15
     assert events[0][0] == EventType.ORDER_SUBMITTED
     assert events[1][0] == EventType.ORDER_CONFIRMED
 
 
 @pytest.mark.asyncio
 async def test_open_market_order_rejected_emits_order_rejected() -> None:
+    # Nessun orderId nella risposta = il broker non ha accettato la richiesta.
     client = AsyncMock()
-    client.post_order.return_value = {"status": "REJECTED", "reason": "insufficient funds"}
+    client.post_order.return_value = {"errorCode": "InsufficientFunds"}
     events: list[tuple[EventType, dict]] = []
 
     async def fake_emit(event_type, payload, *, source="system"):
@@ -71,7 +69,7 @@ async def test_open_market_order_rejected_emits_order_rejected() -> None:
     )
 
     assert result.status == "REJECTED"
-    assert result.error == "insufficient funds"
+    assert "InsufficientFunds" in result.error
     assert events[-1][0] == EventType.ORDER_REJECTED
 
 
@@ -105,7 +103,7 @@ async def test_close_position_emits_position_closed() -> None:
     called_path = client.post.await_args.args[0]
     assert called_path == "/api/v1/trading/execution/demo/market-close-orders/positions/2150941015"
     called_json = client.post.await_args.kwargs["json"]
-    assert called_json == {"InstrumentId": 100000, "UnitsToDeduct": 100}
+    assert called_json == {"InstrumentID": 100000, "UnitsToDeduct": 100}
     assert events[-1][0] == EventType.POSITION_CLOSED
 
 
