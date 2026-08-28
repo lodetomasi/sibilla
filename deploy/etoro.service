@@ -1,0 +1,17 @@
+[Unit]
+Description=SIBILLA eToro equities engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ats
+WorkingDirectory=/home/ats/automatic-trading-bot
+ExecStart=/home/ats/automatic-trading-bot/scripts/supervise_etoro.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/ats/automatic-trading-bot/data/etoro_service.log
+StandardError=append:/home/ats/automatic-trading-bot/data/etoro_service.log
+
+[Install]
+WantedBy=multi-user.target
