@@ -25,19 +25,40 @@ typography:
     fontWeight: 600
     letterSpacing: "0.14em"
     textTransform: "uppercase"
-  gauge-value:
+  micro:
     fontFamily: "{typography.body.fontFamily}"
-    fontSize: "22px"
-    fontWeight: 600
-    lineHeight: 1.3
+    fontSize: "10px"
+    fontWeight: 500
+  meta:
+    fontFamily: "{typography.body.fontFamily}"
+    fontSize: "10.5px"
+    fontWeight: 500
+  body-secondary:
+    fontFamily: "{typography.body.fontFamily}"
+    fontSize: "11.5px"
+    fontWeight: 500
+  table-data:
+    fontFamily: "{typography.body.fontFamily}"
+    fontSize: "12px"
+    fontWeight: 500
   wordmark:
     fontFamily: "{typography.body.fontFamily}"
     fontSize: "15px"
     fontWeight: 700
     letterSpacing: "0.16em"
+  gauge-value-secondary:
+    fontFamily: "{typography.body.fontFamily}"
+    fontSize: "16px"
+    fontWeight: 500
+  gauge-value:
+    fontFamily: "{typography.body.fontFamily}"
+    fontSize: "22px"
+    fontWeight: 600
+    lineHeight: 1.3
 rounded:
   none: "0px"
   hairline: "1px"
+  container: "2px"
   dot: "50%"
 spacing:
   xs: "4px"
@@ -83,7 +104,7 @@ Color strategy: **Full palette**, three named functional roles on a near-black i
 
 One family throughout: a monospace workhorse stack (`ui-monospace, JetBrains Mono, SF Mono, Menlo, Consolas, monospace`) — no external font fetch, so the page loads instantly over a tunnel on a phone connection (Product Principle #3). This is a deliberate Operate-mode choice, not a placeholder: the terminal/CRT world this dashboard inhabits is inherently monospace, and system-stack monospace is a legitimate, distinctive choice for this register (per the skill's own guidance, Operate surfaces are well served by workhorse faces — the training-data-default warning targets Persuade/Experience surfaces reaching for a "point of view" serif or display face, not this).
 
-Scale spans 9.5px (micro labels, letter-spaced, uppercase) to 22px (gauge hero numbers) — a real hierarchy, not flat: labels stay small and dim so the numbers they describe carry all the visual weight.
+Scale spans 9.5px (micro labels, letter-spaced, uppercase) to 22px (gauge hero numbers), eight named steps in between (`micro` 10px, `meta` 10.5px, `body-secondary` 11.5px, `table-data` 12px, `body` 13px, `wordmark` 15px, `gauge-value-secondary` 16px) — a dense terminal genuinely needs this many close small-text steps to separate label / meta / secondary-body / tabular-data registers at a glance; it is a real hierarchy carried by weight and color as much as size, not a flat wall of near-identical text.
 
 ## Layout
 
@@ -100,7 +121,7 @@ No drop shadows, no card elevation. Depth is expressed two ways instead:
 
 ## Shapes
 
-Square corners everywhere except the two live-status dots and the wordmark bezel ring, which are circles (`border-radius: 50%`) — the one deliberate curved element, reserved for "this thing is alive/watching." Hairline 1px borders only; no thick strokes, no double borders.
+Square corners everywhere except the two live-status dots and the wordmark bezel ring, which are circles (`border-radius: 50%`) — the one deliberate curved element, reserved for "this thing is alive/watching." Two flat radii scale with element size: `hairline` (1px) on the thin tick bars, `container` (2px) on the larger gauges grid frame — never more than 2px, never a "friendly rounded card" radius. Hairline 1px borders only; no thick strokes, no double borders.
 
 ## Components
 

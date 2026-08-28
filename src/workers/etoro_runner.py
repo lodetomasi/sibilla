@@ -32,10 +32,6 @@ MARKET_CLOSE = dtime(16, 0)
 TIME_STOP = dtime(15, 40)
 SCAN_INTERVAL_S = 300
 MAX_JUDGED_PER_CYCLE = 10
-JUDGE_COOLDOWN_S = 3600  # stesso pattern del vecchio motore Limitless: le candele
-# giornaliere non cambiano infra-day, senza cooldown lo stesso titolo verrebbe
-# ri-giudicato dall'LLM ad ogni ciclo (~9 min con 200 strumenti) per ore, sempre
-# con lo stesso esito - visto in produzione 28/8 (Ackermans & Van Haaren, 9+ volte).
 MAX_OPEN_POSITIONS = 3  # RiskLimits.max_open_positions (default 10) non e' overridabile
 # da env flat in questo repo: il cap di design (max 3) e' applicato qui, non nel RiskEngine.
 
@@ -66,7 +62,7 @@ class EtoroRunner:
         self.judge_fn = judge_fn
         self.news_lookup_fn = news_lookup_fn
         self.risk_engine = risk_engine or RiskEngine()
-        self._last_judged_at: dict[int, datetime] = {}
+        self._last_news_seen: dict[int, str] = {}
 
     def is_market_open(self, now: datetime) -> bool:
         local = now.astimezone(NY)
@@ -128,17 +124,23 @@ class EtoroRunner:
             peak_equity_week=account.equity, trades_today=0, rejected_streak=0,
         )
 
-        now = utcnow()
         for m in momentum:
-            last_judged = self._last_judged_at.get(m.instrument_id)
-            if last_judged is not None and (now - last_judged).total_seconds() < JUDGE_COOLDOWN_S:
-                continue
             quote = quote_by_id.get(m.instrument_id)
             if quote is None:
                 continue
             news_brief = await self.news_lookup_fn(m.name)
+            # Le candele giornaliere non cambiano infra-day: senza questo dedup lo
+            # stesso titolo veniva ri-giudicato dall'LLM ad ogni ciclo (~9 min con
+            # 200 strumenti) per ore, sempre con lo stesso esito (visto in produzione
+            # 28/8, Ackermans & Van Haaren giudicato 9+ volte in ~90 min). Un cooldown
+            # a tempo pero' bloccherebbe anche un titolo con notizie APPENA arrivate
+            # (visto lo stesso giorno: AECOM ha ricevuto notizia reale ma un cooldown
+            # da 1h l'avrebbe tenuto bloccato) - il dedup e' sul CONTENUTO delle
+            # notizie, non sul tempo: rigiudica ogni volta che cambia qualcosa.
+            if news_brief == self._last_news_seen.get(m.instrument_id):
+                continue
+            self._last_news_seen[m.instrument_id] = news_brief
             verdict = await self.judge_fn(m, news_brief=news_brief, llm=self.llm)
-            self._last_judged_at[m.instrument_id] = now
             if not verdict.has_catalyst:
                 log.info("etoro.runner.no_catalyst", instrument_id=m.instrument_id)
                 continue

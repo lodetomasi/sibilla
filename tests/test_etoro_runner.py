@@ -75,10 +75,12 @@ async def test_run_cycle_opens_order_on_approved_catalyst_trade() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_cycle_does_not_rejudge_same_instrument_within_cooldown() -> None:
-    # Le candele giornaliere non cambiano infra-day: senza cooldown lo stesso
+async def test_run_cycle_does_not_rejudge_same_instrument_when_news_unchanged() -> None:
+    # Le candele giornaliere non cambiano infra-day: senza dedup lo stesso
     # titolo verrebbe ri-giudicato dall'LLM ad ogni ciclo per ore (visto in
     # produzione 28/8, Ackermans & Van Haaren giudicato 9+ volte in ~90 min).
+    # Il dedup e' sul CONTENUTO delle notizie, non su un timer: se non cambia
+    # nulla non c'e' motivo di ripagare il giudizio LLM per lo stesso esito.
     universe = AsyncMock()
     universe.refresh.return_value = [InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)]
     candles = AsyncMock()
@@ -96,6 +98,31 @@ async def test_run_cycle_does_not_rejudge_same_instrument_within_cooldown() -> N
     await runner.run_cycle()
 
     fake_judge.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_rejudges_immediately_when_news_changes() -> None:
+    # Bug reale corretto in produzione 28/8: un cooldown a TEMPO avrebbe tenuto
+    # bloccato un titolo (AECOM) anche dopo l'arrivo di una notizia vera e
+    # specifica, solo perche' non era passata un'ora dall'ultimo giudizio.
+    universe = AsyncMock()
+    universe.refresh.return_value = [InstrumentCandidate(instrument_id=1, name="PennyCo", price=3.55)]
+    candles = AsyncMock()
+    candles.daily_candles.return_value = _flat_history_with_spike()
+    rates = AsyncMock()
+    rates.quotes_for.return_value = [Quote(epic="ETORO:1", bid=3.53, offer=3.55, source="etoro-rest", market_status=MarketStatus.TRADEABLE)]
+    gateway = AsyncMock()
+    gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
+    gateway.positions.return_value = []
+
+    fake_judge = AsyncMock(return_value=CatalystVerdict(has_catalyst=False, rationale="no catalyst"))
+    fake_news = AsyncMock(side_effect=["", "- PennyCo wins FDA approval (Reuters, now)"])
+    runner = EtoroRunner(universe=universe, rates=rates, candles=candles, gateway=gateway, llm=AsyncMock(), judge_fn=fake_judge, news_lookup_fn=fake_news)
+
+    await runner.run_cycle()
+    await runner.run_cycle()
+
+    assert fake_judge.await_count == 2
 
 
 @pytest.mark.asyncio
