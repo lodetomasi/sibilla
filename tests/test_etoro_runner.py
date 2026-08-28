@@ -11,7 +11,7 @@ from collectors.etoro.instruments import InstrumentCandidate
 from collectors.etoro.rates import DailyCandle
 from core.config import RiskLimits
 from core.enums import Direction, MarketStatus
-from core.schemas import AccountState, BrokerPosition, Quote, RiskDecision
+from core.schemas import AccountState, BrokerPosition, OrderResult, Quote, RiskDecision
 from intelligence.etoro_judge import CatalystVerdict
 from risk.engine import RiskEngine
 from workers.etoro_runner import EtoroRunner
@@ -79,7 +79,7 @@ async def test_run_cycle_opens_order_on_approved_catalyst_trade() -> None:
     gateway = AsyncMock()
     gateway.balances.return_value = AccountState(account_id="etoro", currency="USD", balance=100000.0, equity=100000.0, available=100000.0, source="etoro-rest")
     gateway.positions.return_value = []
-    gateway.open_market_order.return_value = None
+    gateway.open_market_order.return_value = OrderResult(client_order_id="123", status="CONFIRMED", requested_size=20.0)
 
     async def fake_judge(candidate, *, news_brief, llm):
         return CatalystVerdict(has_catalyst=True, direction="BUY", confidence=0.7, rationale="FDA news")
@@ -209,6 +209,7 @@ async def test_time_stop_closes_all_open_positions() -> None:
         BrokerPosition(deal_id="pos-1", epic="ETORO:1", direction=Direction.BUY, size=100, level=3.55, currency="USD"),
         BrokerPosition(deal_id="pos-2", epic="ETORO:2", direction=Direction.BUY, size=50, level=1.20, currency="USD"),
     ]
+    gateway.close_position.return_value = {"orderForClose": {"orderID": 999, "statusID": 1}}
     runner = EtoroRunner(universe=AsyncMock(), rates=AsyncMock(), candles=AsyncMock(), gateway=gateway, llm=AsyncMock())
 
     await runner.time_stop_close_all()

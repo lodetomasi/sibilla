@@ -160,11 +160,12 @@ class EtoroRunner:
             units = size_from_decision(decision)
             if units <= 0:
                 continue
-            await self.gateway.open_market_order(
+            result = await self.gateway.open_market_order(
                 instrument_id=m.instrument_id, direction=Direction.BUY, units=units,
                 stop_loss=round(quote.offer * (1 - 0.07), 2), take_profit=round(quote.offer * (1 + 0.14), 2),
                 leverage=LEVERAGE,
             )
+            log.info("etoro.runner.order_submitted", instrument_id=m.instrument_id, units=units, status=result.status, order_id=result.client_order_id, error=result.error)
 
         await self._run_pairs_phase(pairs=pairs, positions=positions, account=account, context=context)
 
@@ -221,8 +222,13 @@ class EtoroRunner:
             entry_a, entry_b = leg_entry_price(sig.direction_a, quote_a), leg_entry_price(sig.direction_b, quote_b)
             stop_a, target_a = leg_stop_and_target(sig.direction_a, entry_a)
             stop_b, target_b = leg_stop_and_target(sig.direction_b, entry_b)
-            await self.gateway.open_market_order(instrument_id=sig.instrument_a_id, direction=sig.direction_a, units=units_a, stop_loss=stop_a, take_profit=target_a, leverage=PAIRS_LEVERAGE)
-            await self.gateway.open_market_order(instrument_id=sig.instrument_b_id, direction=sig.direction_b, units=units_b, stop_loss=stop_b, take_profit=target_b, leverage=PAIRS_LEVERAGE)
+            result_a = await self.gateway.open_market_order(instrument_id=sig.instrument_a_id, direction=sig.direction_a, units=units_a, stop_loss=stop_a, take_profit=target_a, leverage=PAIRS_LEVERAGE)
+            result_b = await self.gateway.open_market_order(instrument_id=sig.instrument_b_id, direction=sig.direction_b, units=units_b, stop_loss=stop_b, take_profit=target_b, leverage=PAIRS_LEVERAGE)
+            log.info(
+                "etoro.runner.pair_order_submitted", pair=pair_label,
+                leg_a_status=result_a.status, leg_a_error=result_a.error,
+                leg_b_status=result_b.status, leg_b_error=result_b.error,
+            )
             # una sola coppia aperta per ciclo: il risk engine (max_open_positions
             # condiviso con la strategia momentum) resta l'unico vero argine.
             break
@@ -230,8 +236,13 @@ class EtoroRunner:
     async def time_stop_close_all(self) -> None:
         positions = await self.gateway.positions()
         for p in positions:
-            await self.gateway.close_position(
+            result = await self.gateway.close_position(
                 position_id=p.deal_id, instrument_id=instrument_id_from_epic(p.epic), units=p.size
+            )
+            order = result.get("orderForClose", {})
+            log.info(
+                "etoro.runner.time_stop_close_submitted", position_id=p.deal_id, epic=p.epic,
+                order_id=order.get("orderID"), status_id=order.get("statusID"),
             )
 
 
