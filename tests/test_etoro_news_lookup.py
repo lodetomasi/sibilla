@@ -44,3 +44,32 @@ async def test_recent_news_brief_respects_limit(engine, memory_cache) -> None:
     brief = await recent_news_brief("PennyCo", limit=2)
 
     assert brief.count("PennyCo update") == 2
+
+
+async def test_recent_news_brief_matches_without_corporate_suffix(engine, memory_cache) -> None:
+    # Bug reale in produzione (28/8): il nome eToro "Ackermans & Van Haaren NV"
+    # non trovava mai nulla perche' le notizie vere non ripetono il suffisso "NV".
+    await _seed_news(title="Ackermans & Van Haaren reports record H1 profit")
+
+    brief = await recent_news_brief("Ackermans & Van Haaren NV")
+
+    assert "record H1 profit" in brief
+
+
+async def test_recent_news_brief_falls_back_to_first_word(engine, memory_cache) -> None:
+    # Nemmeno il nome senza suffisso ("Accesso Technology Group") appare per
+    # intero in molte headline reali, che spesso citano solo il nome breve.
+    await _seed_news(title="Accesso wins new theme park ticketing contract")
+
+    brief = await recent_news_brief("Accesso Technology Group Plc")
+
+    assert "theme park ticketing" in brief
+
+
+async def test_recent_news_brief_does_not_fallback_on_generic_first_word(engine, memory_cache) -> None:
+    # "American" da solo e' rumore, non segnale: niente fallback per parole troppo generiche.
+    await _seed_news(title="American markets close mixed amid Fed uncertainty")
+
+    brief = await recent_news_brief("American Coastal Insurance Corporation")
+
+    assert brief == ""

@@ -6,73 +6,171 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{
-  --bg:#0b0d11;--surface:#11141a;--surface2:#151922;--hair:#1e232d;--hair2:#2a303c;
-  --text:#d7dbe4;--muted:#8d93a1;--dim:#6d7380;
-  --up:#31b487;--dn:#e5484d;--warn:#d9a03f;--acc:#6c94ff;
-  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --void:#05070a; --panel:#0a0e13; --panel2:#0d1218; --edge:#1a222b; --edge2:#242e38;
+  --ink-dim:#48545e; --ink:#a7b3bc; --ink-hi:#e4ecf0;
+  --green:#9fef6f; --green-dim:#5f8a4a; --amber:#ffb84d; --red:#ff6b6b;
+  --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:12.5px/1.5 var(--sans)}
-header{display:flex;align-items:baseline;gap:14px;padding:9px 16px;border-bottom:1px solid var(--hair);
-  position:sticky;top:0;z-index:5;background:var(--bg);flex-wrap:wrap;row-gap:6px}
-h1{font:600 12.5px var(--sans);margin:0;letter-spacing:.02em}
-h1 small{color:var(--dim);font-weight:400}
+html{background:var(--void)}
+body{margin:0;background:var(--void);color:var(--ink);font:13px/1.5 var(--mono);
+  background-image:radial-gradient(ellipse 900px 500px at 50% -10%, rgba(159,239,111,.05), transparent 60%);
+  min-height:100vh}
+::selection{background:rgba(159,239,111,.25);color:var(--ink-hi)}
+
+/* ── wordmark / bezel mark ─────────────────────────────────────── */
+header{display:flex;align-items:center;gap:12px;padding:16px 20px 12px;
+  border-bottom:1px solid var(--edge)}
+.mark{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--edge2);
+  display:flex;align-items:center;justify-content:center;flex:none}
+.mark::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 6px 1px rgba(159,239,111,.7);animation:pulse 3s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.wordmark{font:700 15px/1 var(--mono);letter-spacing:.16em;color:var(--ink-hi);text-transform:uppercase}
+.tagline{font:500 10.5px var(--mono);letter-spacing:.05em;color:var(--ink-dim);margin-left:2px}
 .hspace{flex:1}
-.stat{font:500 11px var(--mono);color:var(--muted);white-space:nowrap}
-.stat b{color:var(--text);font-weight:600}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--dim);display:inline-block;margin-right:7px}
-.dot.ok{background:var(--up)}.dot.bad{background:var(--dn)}
-main{padding:12px 16px 48px;display:grid;gap:10px;grid-template-columns:repeat(12,1fr)}
-section{grid-column:span 12;min-width:0}
-.half{grid-column:span 6}
-@media (max-width:1100px){.half{grid-column:span 12}}
-h2{display:flex;align-items:baseline;gap:10px;margin:6px 0 6px;
-  font:600 10.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-h2::after{content:"";flex:1;border-top:1px solid var(--hair);transform:translateY(-2px)}
-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--hair);border-radius:3px;overflow:hidden}
-th{text-align:left;font:600 10px var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--dim);
-   padding:7px 10px;border-bottom:1px solid var(--hair2);background:var(--surface2)}
-td{padding:6px 10px;font:500 11.5px var(--mono);border-bottom:1px solid var(--hair);color:var(--text)}
-tr:last-child td{border-bottom:none}
-.up{color:var(--up)}.dn{color:var(--dn)}.warn{color:var(--warn)}.dim{color:var(--dim)}
-.empty{padding:16px;color:var(--dim);font:500 11.5px var(--mono);text-align:center}
+.livedot{width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px;
+  box-shadow:0 0 5px 1px rgba(159,239,111,.6);display:inline-block}
+.livedot.stale{background:var(--ink-dim);box-shadow:none;animation:none}
+#last-seen{font:500 10.5px var(--mono);color:var(--ink-dim);letter-spacing:.03em}
+
+/* ── instrument row (gauge cards) ──────────────────────────────── */
+.panel{padding:18px 20px 8px}
+.gauges{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--edge);
+  border:1px solid var(--edge);border-radius:2px;overflow:hidden}
+@media (max-width:980px){.gauges{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:560px){.gauges{grid-template-columns:repeat(2,1fr)}}
+.gauge{background:var(--panel);padding:14px 14px 12px;min-width:0}
+.gauge .label{font:600 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-dim)}
+.gauge .value{font:600 22px/1.3 var(--mono);color:var(--green);margin-top:6px;
+  text-shadow:0 0 14px rgba(159,239,111,.28);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gauge .value.amber{color:var(--amber);text-shadow:0 0 14px rgba(255,184,77,.28)}
+.gauge .value.dim{color:var(--ink);text-shadow:none;font-weight:500;font-size:16px}
+.gauge .sub{font:500 10px var(--mono);color:var(--ink-dim);margin-top:3px}
+.gauge .tick{height:2px;background:var(--edge2);margin-top:10px;border-radius:1px;overflow:hidden}
+.gauge .tick i{display:block;height:100%;width:100%;background:var(--green);transform-origin:left;
+  box-shadow:0 0 6px rgba(159,239,111,.5);transition:transform .6s ease}
+.gauge .tick i.amber{background:var(--amber);box-shadow:0 0 6px rgba(255,184,77,.5)}
+
+/* ── section frames ─────────────────────────────────────────────── */
+section{padding:22px 20px 4px}
+h2{font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);
+  margin:0 0 12px;display:flex;align-items:baseline;gap:8px}
+h2::after{content:"";flex:1;height:1px;background:var(--edge);transform:translateY(-3px)}
+.empty{padding:20px 4px;color:var(--ink-dim);font:500 11.5px var(--mono);letter-spacing:.02em}
+
+/* ── positions (real table: tabular data) ──────────────────────── */
+table{width:100%;border-collapse:collapse}
+.positions th{text-align:left;font:600 9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-dim);padding:0 10px 8px 0;border-bottom:1px solid var(--edge)}
+.positions td{padding:8px 10px 8px 0;font:500 12px var(--mono);color:var(--ink);
+  border-bottom:1px solid var(--edge)}
+.positions tr:last-child td{border-bottom:none}
+.up{color:var(--green)}.dn{color:var(--red)}.amber-t{color:var(--amber)}
+
+/* ── activity feed: no boxes, depth-by-recency ──────────────────── */
+.feed{list-style:none;margin:0;padding:0;max-width:900px}
+.feed li{display:flex;gap:14px;padding:5px 0;align-items:baseline;
+  border-left:2px solid transparent;padding-left:10px;margin-left:-2px}
+.feed li .caret{width:5px;height:5px;border-radius:50%;background:var(--green);flex:none;
+  margin-bottom:1px;box-shadow:0 0 5px rgba(159,239,111,.6)}
+.feed li:not(:first-child) .caret{background:var(--ink-dim);box-shadow:none}
+.feed li .ts{color:var(--ink-dim);font-size:10.5px;flex:none;width:135px}
+.feed li .lbl{font-weight:600;flex:none}
+.feed li .lbl.warn{color:var(--amber)}
+.feed li .lbl.err{color:var(--red)}
+.feed li .lbl.ok{color:var(--green)}
+.feed li .lbl.neutral{color:var(--ink)}
+.feed li .det{color:var(--ink-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── calculations: dense numeric table ──────────────────────────── */
+.calc th{text-align:left;font:600 9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-dim);padding:0 10px 8px 0;border-bottom:1px solid var(--edge)}
+.calc td{padding:5px 10px 5px 0;font:500 11.5px var(--mono);color:var(--ink);
+  border-bottom:1px solid rgba(26,34,43,.6)}
+.calc tr.qualifies td:first-child{box-shadow:inset 2px 0 0 var(--green)}
+.calc .pass{color:var(--green);font-weight:600}
+.calc .fail{color:var(--ink-dim)}
+
+footer{padding:26px 20px 40px;color:var(--ink-dim);font:500 10px var(--mono);letter-spacing:.03em}
 </style>
 </head>
 <body>
+<!--
+THESIS: an instrument panel a stressed operator trusts in seconds, not a
+decorated report — refuses the generic dark-SaaS-dashboard default.
+OWN-WORLD: ranked luminous gauges (radium green primary, amber caution only)
+on matte near-black aviation-panel ground; terminal monospace throughout with
+typed-reveal cues; the activity feed has no table chrome, baseline lines
+receding by age instead of rows in boxes.
+STORY: operator opens the tunnel, sweeps the gauge row (is it alive, is
+capital safe), reads the feed (what just happened), checks the calculations
+(why nothing traded), closes the tab within seconds, trusting the read.
+FIRST VIEWPORT: fixed top row of gauge cards (equity, available, positions,
+market state, universe size, last-scan pulse); SIBILLA wordmark with a
+pulsing bezel-dot mark top-left; positions/feed/calculations stacked below.
+FORM: build candidate 7 of the grounded list (analog multi-gauge cockpit
+family), raised by challenger signals-instruments-night-flight-six-pack
+(WON both axes, fused as core grammar) plus donations from
+pop-culture-shelf-industrial-starship-terminal (monospace commitment, amber
+accent, typed motion) and operate-c-cracktro-scroller-queue (no-box
+depth-by-recency feed). Seed key 23b25325.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the
+finish review, the verdict, DESIGN.md, and every shipping raster carrying
+its provenance.
+-->
 <header>
-  <h1>SIBILLA <small>eToro equities desk</small></h1>
+  <span class="mark"></span>
+  <span class="wordmark">SIBILLA</span>
+  <span class="tagline">eToro equities desk</span>
   <div class="hspace"></div>
-  <span class="stat" id="mode"><span class="dot" id="dot"></span><b id="mode-val">—</b></span>
-  <span class="stat">equity <b id="equity">—</b></span>
-  <span class="stat">disponibile <b id="available">—</b></span>
-  <span class="stat">universo max <b id="max-price">—</b></span>
+  <span><span class="livedot" id="livedot"></span><span id="last-seen">—</span></span>
 </header>
-<main>
-  <section>
-    <h2>Posizioni aperte</h2>
-    <table id="positions-table">
-      <thead><tr><th>Strumento</th><th>Direzione</th><th>Size</th><th>Apertura</th><th>Stop</th><th>Target</th></tr></thead>
-      <tbody id="positions-body"><tr><td colspan="6" class="empty">caricamento…</td></tr></tbody>
-    </table>
-  </section>
-  <section>
-    <h2>Attività recente</h2>
-    <table id="feed-table">
-      <thead><tr><th>Ora (UTC)</th><th>Evento</th><th>Dettaglio</th></tr></thead>
-      <tbody id="feed-body"><tr><td colspan="3" class="empty">caricamento…</td></tr></tbody>
-    </table>
-  </section>
-  <section>
-    <h2>Calcoli screener (ultimo scan, ordinati per gap%)</h2>
-    <table id="calc-table">
-      <thead><tr><th>Ora (UTC)</th><th>Strumento</th><th>Gap %</th><th>Volume relativo</th><th>Esito</th></tr></thead>
-      <tbody id="calc-body"><tr><td colspan="5" class="empty">caricamento…</td></tr></tbody>
-    </table>
-  </section>
-</main>
+
+<div class="panel">
+  <div class="gauges">
+    <div class="gauge"><div class="label">Equity</div><div class="value" id="g-equity">—</div><div class="sub" id="g-equity-sub">&nbsp;</div><div class="tick"><i id="g-equity-tick" style="transform:scaleX(1)"></i></div></div>
+    <div class="gauge"><div class="label">Disponibile</div><div class="value dim" id="g-available">—</div><div class="sub">&nbsp;</div><div class="tick"><i id="g-available-tick" style="transform:scaleX(0)"></i></div></div>
+    <div class="gauge"><div class="label">Posizioni</div><div class="value" id="g-positions">—</div><div class="sub" id="g-positions-sub">&nbsp;</div><div class="tick"><i id="g-positions-tick" style="transform:scaleX(0)"></i></div></div>
+    <div class="gauge"><div class="label">Mercato</div><div class="value dim" id="g-mode">—</div><div class="sub" id="g-mode-sub">&nbsp;</div><div class="tick"><i id="g-mode-tick" style="transform:scaleX(1)"></i></div></div>
+    <div class="gauge"><div class="label">Universo</div><div class="value dim" id="g-universe">—</div><div class="sub" id="g-universe-sub">&nbsp;</div><div class="tick"><i id="g-universe-tick" style="transform:scaleX(1)"></i></div></div>
+    <div class="gauge"><div class="label">Ultimo scan</div><div class="value dim" id="g-scan">—</div><div class="sub">&nbsp;</div><div class="tick"><i id="g-scan-tick" style="transform:scaleX(1)"></i></div></div>
+  </div>
+</div>
+
+<section>
+  <h2>Posizioni aperte</h2>
+  <table class="positions">
+    <thead><tr><th>Strumento</th><th>Direzione</th><th>Size</th><th>Apertura</th><th>Stop</th><th>Target</th></tr></thead>
+    <tbody id="positions-body"><tr><td colspan="6" class="empty">caricamento…</td></tr></tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Attività recente</h2>
+  <ul class="feed" id="feed-list"><li class="empty">caricamento…</li></ul>
+</section>
+
+<section>
+  <h2>Calcoli screener (ultimo scan, ordinati per gap%)</h2>
+  <table class="calc">
+    <thead><tr><th>Ora (UTC)</th><th>Strumento</th><th>Gap %</th><th>Vol. relativo</th><th>Esito</th></tr></thead>
+    <tbody id="calc-body"><tr><td colspan="5" class="empty">caricamento…</td></tr></tbody>
+  </table>
+</section>
+
+<footer>SIBILLA — autonomous eToro equities desk · read-only · dati live via tunnel locale</footer>
+
 <script>
 function fmt(n, d=2){ return (typeof n === "number") ? n.toFixed(d) : "—"; }
+function timeAgo(iso){
+  if (!iso) return null;
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso + "Z").getTime()) / 1000));
+  if (s < 60) return s + "s fa";
+  if (s < 3600) return Math.floor(s/60) + "m fa";
+  return Math.floor(s/3600) + "h fa";
+}
 
 async function refresh() {
   try {
@@ -84,50 +182,74 @@ async function refresh() {
       fetch("/api/etoro/calculations").then(r => r.json()).catch(() => []),
     ]);
 
-    document.getElementById("mode-val").textContent = status.mode || "—";
-    document.getElementById("dot").className = "dot " + (status.etoro_configured ? "ok" : "bad");
-    document.getElementById("max-price").textContent = status.max_penny_price_usd ? "$" + status.max_penny_price_usd : "—";
+    // ── gauges ──
     if (balance) {
-      document.getElementById("equity").textContent = fmt(balance.equity) + " " + (balance.currency || "");
-      document.getElementById("available").textContent = fmt(balance.available) + " " + (balance.currency || "");
+      document.getElementById("g-equity").textContent = fmt(balance.equity, 0);
+      document.getElementById("g-equity-sub").textContent = balance.currency || "";
+      document.getElementById("g-available").textContent = fmt(balance.available, 0);
+      const availRatio = balance.equity ? Math.min(1, balance.available / balance.equity) : 0;
+      document.getElementById("g-available-tick").style.transform = "scaleX(" + availRatio + ")";
     }
+    const posEl = document.getElementById("g-positions");
+    posEl.textContent = positions.length + " / 3";
+    posEl.className = "value" + (positions.length >= 3 ? " amber" : "");
+    document.getElementById("g-positions-tick").style.transform = "scaleX(" + Math.min(1, positions.length/3) + ")";
+    document.getElementById("g-positions-tick").className = positions.length >= 3 ? "amber" : "";
 
+    document.getElementById("g-mode").textContent = status.mode || "—";
+    document.getElementById("g-mode-sub").textContent = status.etoro_configured ? "connesso" : "chiave assente";
+    document.getElementById("g-mode-tick").className = status.etoro_configured ? "" : "amber";
+
+    document.getElementById("g-universe").textContent = status.max_penny_price_usd
+      ? "≤$" + status.max_penny_price_usd.toLocaleString("it-IT") : "—";
+    document.getElementById("g-universe-sub").textContent = "tetto prezzo";
+
+    const latest = feed[0];
+    const ago = latest ? timeAgo(latest.ts) : null;
+    document.getElementById("g-scan").textContent = ago || "—";
+    document.getElementById("last-seen").textContent = latest ? ("ultimo evento " + ago) : "nessun evento";
+    const dot = document.getElementById("livedot");
+    const stale = !latest || (Date.now() - new Date(latest.ts + "Z").getTime()) > 20 * 60 * 1000;
+    dot.className = "livedot" + (stale ? " stale" : "");
+
+    // ── positions ──
     const posBody = document.getElementById("positions-body");
-    if (!positions.length) {
-      posBody.innerHTML = '<tr><td colspan="6" class="empty">nessuna posizione aperta</td></tr>';
-    } else {
-      posBody.innerHTML = positions.map(p => `<tr>
-        <td>${p.epic}</td><td class="${p.direction === 'BUY' ? 'up' : 'dn'}">${p.direction}</td>
-        <td>${fmt(p.size, 0)}</td><td>${fmt(p.level)}</td>
-        <td class="dn">${fmt(p.stop_level)}</td><td class="up">${fmt(p.limit_level)}</td>
-      </tr>`).join("");
-    }
+    posBody.innerHTML = !positions.length
+      ? '<tr><td colspan="6" class="empty">nessuna posizione aperta</td></tr>'
+      : positions.map(p => `<tr>
+          <td>${p.epic}</td><td class="${p.direction === 'BUY' ? 'up' : 'dn'}">${p.direction}</td>
+          <td>${fmt(p.size, 0)}</td><td>${fmt(p.level)}</td>
+          <td class="dn">${fmt(p.stop_level)}</td><td class="up">${fmt(p.limit_level)}</td>
+        </tr>`).join("");
 
-    const feedBody = document.getElementById("feed-body");
-    if (!feed.length) {
-      feedBody.innerHTML = '<tr><td colspan="3" class="empty">nessuna attività registrata</td></tr>';
-    } else {
-      feedBody.innerHTML = feed.map(f => {
-        const cls = f.event.includes("failed") ? "dn" : f.event.includes("no_") ? "dim" : "text";
-        const detail = Object.entries(f.detail || {}).map(([k, v]) => `${k}=${v}`).join(" · ");
-        return `<tr><td class="dim">${f.ts}</td><td class="${cls}">${f.label}</td><td>${detail}</td></tr>`;
-      }).join("");
-    }
+    // ── activity feed: depth-by-recency, no boxes ──
+    const feedList = document.getElementById("feed-list");
+    feedList.innerHTML = !feed.length
+      ? '<li class="empty">nessuna attività registrata</li>'
+      : feed.map((f, i) => {
+          const cls = f.event.includes("failed") ? "err" : f.event.includes("no_") ? "neutral"
+            : f.event.includes("ORDER") || f.event.includes("started") ? "ok" : "neutral";
+          const opacity = Math.max(0.32, 1 - i * 0.045);
+          const detail = Object.entries(f.detail || {}).map(([k, v]) => `${k}=${v}`).join(" · ");
+          return `<li style="opacity:${opacity.toFixed(2)}">
+            <span class="caret"></span><span class="ts">${f.ts}</span>
+            <span class="lbl ${cls}">${f.label}</span><span class="det">${detail}</span>
+          </li>`;
+        }).join("");
 
+    // ── calculations: latest per instrument, ranked by gap% ──
     const calcBody = document.getElementById("calc-body");
     if (!calcs.length) {
       calcBody.innerHTML = '<tr><td colspan="5" class="empty">nessun calcolo registrato</td></tr>';
     } else {
       const latestPerInstrument = new Map();
-      for (const c of calcs) {
-        if (!latestPerInstrument.has(c.instrument_id)) latestPerInstrument.set(c.instrument_id, c);
-      }
+      for (const c of calcs) if (!latestPerInstrument.has(c.instrument_id)) latestPerInstrument.set(c.instrument_id, c);
       const rows = [...latestPerInstrument.values()].sort((a, b) => (b.gap_pct ?? -1) - (a.gap_pct ?? -1));
-      calcBody.innerHTML = rows.map(c => `<tr>
-        <td class="dim">${c.ts}</td><td>${c.name || c.instrument_id}</td>
-        <td class="${(c.gap_pct ?? 0) >= 0 ? 'up' : 'dn'}">${c.gap_pct != null ? (c.gap_pct * 100).toFixed(2) + '%' : '—'}</td>
-        <td>${c.relative_volume != null ? c.relative_volume.toFixed(2) + 'x' : '—'}</td>
-        <td class="${c.qualifies ? 'up' : 'dim'}">${c.qualifies ? 'QUALIFICA' : 'sotto soglia'}</td>
+      calcBody.innerHTML = rows.map(c => `<tr class="${c.qualifies ? 'qualifies' : ''}">
+        <td>${c.ts}</td><td>${c.name || c.instrument_id}</td>
+        <td class="${c.qualifies ? 'pass' : 'fail'}">${c.gap_pct != null ? (c.gap_pct * 100).toFixed(2) + '%' : '—'}</td>
+        <td class="${c.qualifies ? 'pass' : 'fail'}">${c.relative_volume != null ? c.relative_volume.toFixed(2) + 'x' : '—'}</td>
+        <td class="${c.qualifies ? 'pass' : 'fail'}">${c.qualifies ? 'QUALIFICA' : 'sotto soglia'}</td>
       </tr>`).join("");
     }
   } catch (e) {
