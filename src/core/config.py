@@ -244,6 +244,12 @@ class LLMConfig(BaseModel):
             trigger="final_decision_only",
         )
     )
+    etoro_catalyst_judge: LLMRole = Field(
+        default_factory=lambda: LLMRole(
+            model="openai/gpt-5.6-sol-pro", role="etoro_penny_stock_catalyst_gate",
+            reasoning_effort="medium", max_output_tokens=1500, timeout_s=180,
+        )
+    )
 
     # soglie di qualificazione della pipeline (funnel dei costi)
     filter_min_relevance: float = 0.6
@@ -309,6 +315,7 @@ class LLMConfig(BaseModel):
             "contrarian_agent": self.contrarian_agent,
             "adversarial_red_team": self.adversarial_red_team,
             "final_portfolio_manager": self.final_portfolio_manager,
+            "etoro_catalyst_judge": self.etoro_catalyst_judge,
         }
 
     @property
