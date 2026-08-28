@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from collectors.etoro.instruments import InstrumentCandidate
 from collectors.etoro.rates import DailyCandle
 
-MIN_GAP_PCT = 0.05
-MIN_RELATIVE_VOLUME = 3.0
+MIN_GAP_PCT = 0.03
+MIN_RELATIVE_VOLUME = 2.0
 LOOKBACK_SESSIONS = 20
 MIN_HISTORY_LENGTH = LOOKBACK_SESSIONS + 1
 

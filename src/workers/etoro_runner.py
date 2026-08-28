@@ -31,7 +31,7 @@ MARKET_OPEN = dtime(9, 30)
 MARKET_CLOSE = dtime(16, 0)
 TIME_STOP = dtime(15, 40)
 SCAN_INTERVAL_S = 300
-MAX_JUDGED_PER_CYCLE = 5
+MAX_JUDGED_PER_CYCLE = 10
 MAX_OPEN_POSITIONS = 3  # RiskLimits.max_open_positions (default 10) non e' overridabile
 # da env flat in questo repo: il cap di design (max 3) e' applicato qui, non nel RiskEngine.
 

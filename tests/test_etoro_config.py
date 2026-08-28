@@ -25,7 +25,7 @@ def test_etoro_config_defaults() -> None:
     s = _settings()
     assert s.etoro.demo_base_url == "https://public-api.etoro.com"
     assert s.etoro.live_base_url == "https://public-api.etoro.com"
-    assert s.etoro.max_penny_price_usd == 50.0
+    assert s.etoro.max_penny_price_usd == 100000.0
     assert s.etoro.read_rate_limit_per_min == 55
     assert s.etoro.write_rate_limit_per_min == 18
 
